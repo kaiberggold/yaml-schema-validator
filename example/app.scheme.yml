@@ -1,0 +1,82 @@
+# Scheme for app.yml (same folder, same base name).
+description: Application configuration.
+type: map
+properties:
+  name:
+    type: string
+    required: true
+    pattern: "^[a-z][a-z0-9-]*$"
+    description: Technical name of the application (lowercase, digits and dashes).
+    messages:
+      pattern: "Application name '${value}' must be lowercase kebab-case (rule: ${scheme}:${ruleLine})"
+  version:
+    type: string
+    required: true
+    pattern: "^\\d+\\.\\d+\\.\\d+$"
+    description: Semantic version, e.g. `1.2.3`. Quote it so YAML keeps it a string.
+    examples: ["1.0.0"]
+  mode:
+    enum: [development, production, test]
+    default: development
+    description: Runtime mode.
+  logLevel:
+    enum: [debug, info, warn, error]
+    default: info
+    description: Minimal level of log messages.
+  timeout:
+    type: integer
+    min: 1
+    description: Request timeout in seconds.
+  server:
+    ref: server
+    required: true
+  database:
+    type: map
+    description: Database settings, usually included from `database/db.yml` (validated by its own scheme).
+    additionalProperties: true
+  features:
+    type: list
+    description: Optional features.
+    items:
+      ref: feature
+  debug:
+    type: boolean
+    deprecated: "use 'logLevel: debug' instead"
+    description: Old switch for debug output.
+
+definitions:
+  server:
+    type: map
+    description: HTTP server settings.
+    properties:
+      host:
+        type: string
+        default: localhost
+        description: Interface to bind to.
+      port:
+        type: integer
+        min: 1
+        max: 65535
+        default: 8080
+        description: TCP port.
+        severity: error
+        message: "Port ${value} is out of range [${min}, ${max}] — see the server docs."
+        see:
+          - README.md:1
+          - file: database/db.yml
+            label: Database port is configured separately
+      tls:
+        type: boolean
+        default: false
+        description: Enable HTTPS.
+  feature:
+    type: map
+    properties:
+      name:
+        type: string
+        required: true
+        description: Feature identifier.
+      enabled:
+        type: boolean
+        default: true
+        description: Whether the feature is active.

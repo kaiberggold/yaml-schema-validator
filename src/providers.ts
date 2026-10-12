@@ -1,0 +1,318 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as vscode from 'vscode';
+import {
+    CompletionEntry,
+    HoverEnv,
+    ITEM,
+    getCursorContext,
+    hoverMarkdown,
+    keyAt,
+    keyCompletions,
+    lineInfo,
+    valueCompletions,
+    walk,
+} from './core/assist';
+import { EXTEND_TAG, findIncludeSites } from './core/effective';
+import { META_FILE } from './core/meta';
+import { fileKey, isSchemeFile, isYamlFile, schemeCandidates } from './core/paths';
+import { SchemaNode, deref, effectiveTypes, expand } from './core/scheme';
+import { Manager } from './manager';
+
+const KIND: Record<CompletionEntry['kind'], vscode.CompletionItemKind> = {
+    property: vscode.CompletionItemKind.Property,
+    value: vscode.CompletionItemKind.Value,
+    keyword: vscode.CompletionItemKind.Keyword,
+    file: vscode.CompletionItemKind.File,
+    folder: vscode.CompletionItemKind.Folder,
+};
+
+export const SELECTOR: vscode.DocumentSelector = [
+    { scheme: 'file', language: 'yaml' },
+    { scheme: 'file', pattern: '**/*.{yml,yaml}' },
+];
+
+function hoverEnv(manager: Manager): HoverEnv {
+    return {
+        lineOf: (file, offset) => {
+            if (fileKey(file) === fileKey(META_FILE)) {
+                return undefined;
+            }
+            const d = manager.engine.getDoc(file);
+            return d ? d.lines.positionAt(offset).line + 1 : undefined;
+        },
+        link: (file, line) =>
+            fileKey(file) === fileKey(META_FILE) ? undefined : vscode.Uri.file(file).with({ fragment: `L${line}` }).toString(),
+    };
+}
+
+function markdown(text: string): vscode.MarkdownString {
+    const md = new vscode.MarkdownString(text);
+    md.supportHtml = false;
+    return md;
+}
+
+function includeSites(manager: Manager, doc: vscode.TextDocument) {
+    const parsed = manager.engine.getDoc(doc.uri.fsPath);
+    if (!parsed) {
+        return [];
+    }
+    return findIncludeSites(parsed.yaml, doc.uri.fsPath, manager.extendKeyword, (f) => manager.engine.exists(f));
+}
+
+/** Schema node at a key position: from validation annotations, or by walking the key path. */
+function schemaAtKey(
+    manager: Manager,
+    doc: vscode.TextDocument,
+    pos: vscode.Position,
+): { node: SchemaNode; key: string; range: vscode.Range } | undefined {
+    const file = doc.uri.fsPath;
+    const text = doc.getText();
+    const offset = doc.offsetAt(pos);
+    const anns = manager.annotationsFor(file, text);
+    if (anns) {
+        let best: (typeof anns)[number] | undefined;
+        for (const a of anns) {
+            if (offset < a.start || offset > a.end) {
+                continue;
+            }
+            if (a.kind === 'value' && doc.positionAt(a.start).line !== doc.positionAt(a.end).line) {
+                continue;
+            }
+            if (!best || a.end - a.start < best.end - best.start || (a.kind === 'key' && best.kind !== 'key')) {
+                best = a;
+            }
+        }
+        if (best) {
+            return { node: best.schema, key: best.key ?? '', range: new vscode.Range(doc.positionAt(best.start), doc.positionAt(best.end)) };
+        }
+    }
+    const info = manager.schemaFor(file);
+    if (!info) {
+        return undefined;
+    }
+    const lines = text.split(/\r?\n/);
+    const k = keyAt(lines, pos.line, pos.character);
+    if (!k) {
+        return undefined;
+    }
+    const nodes = walk(info.root, k.path);
+    if (!nodes.length) {
+        return undefined;
+    }
+    return { node: nodes[0], key: k.key, range: new vscode.Range(pos.line, k.start, pos.line, k.end) };
+}
+
+export class CompletionProvider implements vscode.CompletionItemProvider {
+    constructor(private readonly manager: Manager) {}
+
+    provideCompletionItems(doc: vscode.TextDocument, pos: vscode.Position): vscode.CompletionItem[] | undefined {
+        const file = doc.uri.fsPath;
+        const info = this.manager.schemaFor(file);
+        if (!info && !this.manager.isManaged(file)) {
+            return undefined;
+        }
+        const lines = doc.getText().split(/\r?\n/);
+        const ctx = getCursorContext(lines, pos.line, pos.character);
+        if (ctx.kind === 'none') {
+            return undefined;
+        }
+        const scheme = isSchemeFile(file);
+        const keyword = this.manager.extendKeyword;
+        const env = hoverEnv(this.manager);
+        const range = new vscode.Range(pos.line, ctx.startCol, pos.line, pos.character);
+        let entries: CompletionEntry[] = [];
+
+        if (ctx.kind === 'value') {
+            const isInclude = ctx.extendTag || (ctx.key === keyword && (!scheme || ctx.path.length === 0));
+            if (isInclude) {
+                return this.fileCompletions(file, ctx.prefix, pos);
+            }
+            if (ctx.prefix === '' || !ctx.prefix.startsWith('!')) {
+                entries = info ? valueCompletions(walk(info.root, [...ctx.path, ctx.key!])) : [];
+            }
+            if (!scheme && (!ctx.prefix || EXTEND_TAG.startsWith(ctx.prefix))) {
+                entries.push({
+                    label: EXTEND_TAG,
+                    kind: 'keyword',
+                    insertText: `${EXTEND_TAG} `,
+                    isSnippet: false,
+                    detail: 'Replace this value with the content of another YAML file',
+                    sortText: '9',
+                    retrigger: true,
+                });
+            }
+        } else {
+            const n = ctx.path.length;
+            if (ctx.dashes > 0 && ctx.path[n - 1] === ITEM && ctx.path[n - 2] === keyword && (!scheme || n === 2)) {
+                // item of `extend:` list
+                return this.fileCompletions(file, ctx.prefix, pos);
+            }
+            const nodes = info ? walk(info.root, ctx.path) : [];
+            entries = keyCompletions(nodes, ctx.siblings, env, !scheme || ctx.path.length === 0 ? keyword : undefined);
+            // list of scalars: offer values for the item
+            if (ctx.dashes > 0 && ctx.path[ctx.path.length - 1] === ITEM) {
+                const scalarItems = nodes.filter((n) => expand(n).some((a) => !effectiveTypes(a).includes('map')));
+                entries.push(...valueCompletions(scalarItems));
+            }
+        }
+        return entries.map((e) => this.toItem(e, range));
+    }
+
+    private toItem(e: CompletionEntry, range: vscode.Range): vscode.CompletionItem {
+        const item = new vscode.CompletionItem(e.label, KIND[e.kind]);
+        item.insertText = e.isSnippet ? new vscode.SnippetString(e.insertText) : e.insertText;
+        item.detail = e.detail;
+        if (e.documentation) {
+            item.documentation = markdown(e.documentation);
+        }
+        item.sortText = e.sortText;
+        item.preselect = e.preselect;
+        item.range = range;
+        if (e.retrigger) {
+            item.command = { command: 'editor.action.triggerSuggest', title: 'Suggest' };
+        }
+        return item;
+    }
+
+    private fileCompletions(file: string, typed: string, pos: vscode.Position): vscode.CompletionItem[] {
+        const quote = typed.match(/^["']/)?.[0] ?? '';
+        const p = typed.slice(quote.length);
+        const slash = p.lastIndexOf('/');
+        const dirPart = slash >= 0 ? p.slice(0, slash + 1) : '';
+        const dir = path.resolve(path.dirname(file), dirPart || '.');
+        const startCol = pos.character - (p.length - dirPart.length);
+        const range = new vscode.Range(pos.line, startCol, pos.line, pos.character);
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+            return [];
+        }
+        const self = fileKey(file);
+        const items: vscode.CompletionItem[] = [];
+        for (const e of entries) {
+            if (e.name.startsWith('.') || e.name === 'node_modules') {
+                continue;
+            }
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) {
+                const it = new vscode.CompletionItem(`${e.name}/`, vscode.CompletionItemKind.Folder);
+                it.range = range;
+                it.sortText = `1_${e.name}`;
+                it.command = { command: 'editor.action.triggerSuggest', title: 'Suggest' };
+                items.push(it);
+            } else if (isYamlFile(e.name) && !isSchemeFile(e.name) && fileKey(full) !== self) {
+                const it = new vscode.CompletionItem(e.name, vscode.CompletionItemKind.File);
+                it.range = range;
+                it.sortText = `0_${e.name}`;
+                const scheme = schemeCandidates(full).find((c) => this.manager.engine.exists(c));
+                it.detail = scheme ? `validated by ${path.basename(scheme)}` : 'no own scheme';
+                items.push(it);
+            }
+        }
+        return items;
+    }
+}
+
+export class HoverProvider implements vscode.HoverProvider {
+    constructor(private readonly manager: Manager) {}
+
+    provideHover(doc: vscode.TextDocument, pos: vscode.Position): vscode.Hover | undefined {
+        const file = doc.uri.fsPath;
+        if (!this.manager.isManaged(file) && !this.manager.schemaFor(file)) {
+            return undefined;
+        }
+        const offset = doc.offsetAt(pos);
+        for (const site of includeSites(this.manager, doc)) {
+            const start = site.keyStart ?? site.start;
+            if (offset >= start && offset <= site.end) {
+                return new vscode.Hover(markdown(this.includeHover(site.raw, site.target)), new vscode.Range(doc.positionAt(site.start), doc.positionAt(site.end)));
+            }
+        }
+        const hit = schemaAtKey(this.manager, doc, pos);
+        if (hit) {
+            return new vscode.Hover(markdown(hoverMarkdown(hit.node, hit.key || undefined, hoverEnv(this.manager))), hit.range);
+        }
+        return undefined;
+    }
+
+    private includeHover(raw: string, target: string): string {
+        const e = this.manager.engine;
+        if (!e.exists(target)) {
+            return `**${this.manager.extendKeyword}** \`${raw}\`\n\n❌ File not found: \`${target}\``;
+        }
+        const link = vscode.Uri.file(target).toString();
+        const scheme = schemeCandidates(target).find((c) => e.exists(c));
+        const lines = [`**${this.manager.extendKeyword}** → [${path.basename(target)}](${link})`, `\`${target}\``];
+        lines.push(
+            scheme
+                ? `Validated by its own scheme [${path.basename(scheme)}](${vscode.Uri.file(scheme).toString()}) and by the scheme of this file.`
+                : 'No own scheme: validated by the scheme of this file.',
+        );
+        return lines.join('\n\n');
+    }
+}
+
+export class DefinitionProvider implements vscode.DefinitionProvider {
+    constructor(private readonly manager: Manager) {}
+
+    provideDefinition(doc: vscode.TextDocument, pos: vscode.Position): vscode.Definition | undefined {
+        const file = doc.uri.fsPath;
+        const offset = doc.offsetAt(pos);
+        for (const site of includeSites(this.manager, doc)) {
+            if (offset >= site.start && offset <= site.end && this.manager.engine.exists(site.target)) {
+                return new vscode.Location(vscode.Uri.file(site.target), new vscode.Position(0, 0));
+            }
+        }
+        // `ref: name` inside a scheme file
+        if (isSchemeFile(file)) {
+            const line = doc.lineAt(pos.line).text;
+            const info = lineInfo(line);
+            const key = info.tokens.find((t) => t.kind === 'key');
+            if (key?.key === 'ref' && pos.character > key.keyEnd!) {
+                const name = line.slice(line.indexOf(':', key.keyEnd!) + 1).replace(/#.*$/, '').trim().replace(/^["']|["']$/g, '');
+                const def = this.manager.engine.compileSchemeFile(file)?.definitions.get(name);
+                if (def) {
+                    return this.location(def);
+                }
+            }
+        }
+        const hit = schemaAtKey(this.manager, doc, pos);
+        return hit ? this.location(deref(hit.node)) : undefined;
+    }
+
+    private location(n: SchemaNode): vscode.Location | undefined {
+        const file = n.keyFile ?? n.file;
+        const offset = n.keyFile !== undefined ? n.keyStart! : n.start;
+        if (fileKey(file) === fileKey(META_FILE)) {
+            return undefined;
+        }
+        const d = this.manager.engine.getDoc(file);
+        if (!d) {
+            return undefined;
+        }
+        const p = d.lines.positionAt(offset);
+        return new vscode.Location(vscode.Uri.file(file), new vscode.Position(p.line, p.character));
+    }
+}
+
+export class LinkProvider implements vscode.DocumentLinkProvider {
+    constructor(private readonly manager: Manager) {}
+
+    provideDocumentLinks(doc: vscode.TextDocument): vscode.DocumentLink[] {
+        if (!this.manager.isManaged(doc.uri.fsPath)) {
+            return [];
+        }
+        const links: vscode.DocumentLink[] = [];
+        for (const site of includeSites(this.manager, doc)) {
+            if (!this.manager.engine.exists(site.target)) {
+                continue;
+            }
+            const link = new vscode.DocumentLink(new vscode.Range(doc.positionAt(site.start), doc.positionAt(site.end)), vscode.Uri.file(site.target));
+            link.tooltip = `Open ${path.basename(site.target)}`;
+            links.push(link);
+        }
+        return links;
+    }
+}

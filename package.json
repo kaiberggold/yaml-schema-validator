@@ -1,0 +1,97 @@
+{
+  "name": "yaml-scheme-validator",
+  "displayName": "YAML Scheme Validator",
+  "description": "Validates YAML config files against sibling *.scheme.yml files, with recursive 'extend' includes, diagnostics, completion and hover help.",
+  "version": "0.1.0",
+  "publisher": "kaiberggold",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "yaml",
+    "schema",
+    "scheme",
+    "validation",
+    "config"
+  ],
+  "main": "./out/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onLanguage:yaml",
+    "workspaceContains:**/*.scheme.yml",
+    "workspaceContains:**/*.scheme.yaml"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "yamlScheme.revalidateAll",
+        "title": "Revalidate All Files",
+        "category": "YAML Scheme"
+      },
+      {
+        "command": "yamlScheme.openScheme",
+        "title": "Open Scheme for Current File",
+        "category": "YAML Scheme"
+      }
+    ],
+    "configuration": {
+      "title": "YAML Scheme Validator",
+      "properties": {
+        "yamlScheme.extendKeyword": {
+          "type": "string",
+          "default": "extend",
+          "description": "Mapping key that includes other YAML files (`extend: other.yml` or `extend: [a.yml, b.yml]`). The tag form `!extend other.yml` is always available."
+        },
+        "yamlScheme.unknownKeySeverity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "hint",
+            "ignore"
+          ],
+          "default": "warning",
+          "description": "Default severity for keys that are not declared in the scheme (can be overridden per node with `severity`)."
+        },
+        "yamlScheme.includeSummary": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a summary diagnostic on each `extend` line when the included file (or anything it includes) has problems."
+        },
+        "yamlScheme.debounceMs": {
+          "type": "number",
+          "default": 250,
+          "minimum": 0,
+          "description": "Delay in milliseconds before revalidating after an edit or file change."
+        },
+        "yamlScheme.exclude": {
+          "type": "string",
+          "default": "**/{node_modules,.git}/**",
+          "description": "Glob of files ignored when scanning the workspace for *.scheme.yml files."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node --test out/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/vscode": "~1.85.0",
+    "typescript": "^5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kaiberggold/yaml-schema-validator.git"
+  }
+}

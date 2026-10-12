@@ -1,0 +1,6 @@
+extend: credentials.yml
+driver: postgres
+port: 5432
+pool:
+  min: 1
+  max: 10

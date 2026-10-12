@@ -1,0 +1,17 @@
+# Validated by app.scheme.yml. Hover keys for help, Ctrl+Space for suggestions.
+extend: base.yml
+
+name: Demo_App
+version: 1.2
+mode: staging
+server:
+  host: localhost
+  port: 70000
+  tls: yes
+database: !extend database/db.yml
+features:
+  - name: search
+    enabled: true
+  - name: export
+    enbled: false
+debug: true

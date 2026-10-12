@@ -1,0 +1,22 @@
+type: map
+description: Database connection.
+properties:
+  driver:
+    enum: [postgres, mysql, sqlite]
+    required: true
+    description: Database driver.
+  port:
+    type: integer
+    description: Database port.
+  pool:
+    type: map
+    properties:
+      min: {type: integer, min: 0}
+      max: {type: integer, min: 1}
+  user:
+    type: string
+    required: true
+    description: Login user (usually provided by `credentials.yml`).
+  password:
+    type: string
+    required: true
