@@ -141,7 +141,7 @@ test('include errors: missing, cycle, wrong type, bad value', () => {
     const r = run(
         {
             'a.scheme.yml': 'type: map\nadditionalProperties: true\n',
-            'a.yml': 'extend: [missing.yml, b.yml, list.yml]\nx: !extend 5\n',
+            'a.yml': 'extend: [missing.yml, b.yml, list.yml]\nx: !extend {a: 1}\n',
             'b.yml': 'extend: a.yml\n',
             'list.yml': '- 1\n',
         },

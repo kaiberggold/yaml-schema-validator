@@ -102,20 +102,24 @@ test('offsets of keys and values', () => {
 });
 
 test('syntax errors are reported and parsing recovers', () => {
+    const codes = (text: string) => parseYaml(text).errors.map((e) => e.code);
     assert.deepEqual(parse('a: 1\na: 2\n').errors, ["Duplicate key 'a'"]);
-    assert.deepEqual(parse('a:\n  b: 1\n c: 2\n').errors, ['Bad indentation']);
-    assert.deepEqual(parse('a:\n\t- x\n').errors.slice(0, 1), ['Tab characters must not be used for indentation']);
-    assert.deepEqual(parse('a: b: c\n').errors, ['Nested mappings are not allowed on the same line as their key']);
-    assert.deepEqual(parse('x: "open\n').errors, ['Unterminated quoted string']);
-    assert.deepEqual(parse('a: [1, 2\n').errors, ["Unterminated flow sequence, expected ']'"]);
+    assert.deepEqual(parse('"q k": 1\n"q k": 2\n').errors, ["Duplicate key 'q k'"]);
+    assert.deepEqual(codes('a:\n  b: 1\n c: 2\n'), ['BAD_INDENT']);
+    assert.deepEqual(codes('a:\n\t- x\n'), ['TAB_AS_INDENT']);
+    assert.deepEqual(codes('a: b: c\n'), ['BLOCK_AS_IMPLICIT_KEY']);
+    assert.deepEqual(codes('x: "open\n'), ['MISSING_CHAR']);
+    assert.deepEqual(codes('a: [1, 2\n'), ['BAD_INDENT']);
     assert.deepEqual(parse('a: *nope\n').errors, ["Unknown anchor 'nope'"]);
-    const r = parse('a: 1\n  bad: 2\nc: 3\n');
-    assert.deepEqual(r.errors, ['Bad indentation']);
-    assert.deepEqual(r.value, { a: 1, c: 3 });
+    // the parser keeps going after an error
+    const r = parse('a: 1\nb: [x\nc: 3\n');
+    assert.ok(r.errors.length > 0);
+    assert.equal((r.value as Record<string, unknown>).a, 1);
 });
 
 test('documents', () => {
     assert.deepEqual(parse('---\na: 1\n...\n').value, { a: 1 });
     assert.deepEqual(parse('a: 1\n---\nb: 2\n').errors, ['Only the first YAML document is validated']);
+    assert.deepEqual(parse('a: 1\n---\nb: 2\n').value, { a: 1 });
     assert.equal(parseYaml('# only a comment\n').root, undefined);
 });

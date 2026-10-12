@@ -1,6 +1,6 @@
 # YAML Scheme Validator
 
-A VS Code extension (TypeScript, no runtime dependencies) that validates YAML
+A VS Code extension (TypeScript) that validates YAML
 configuration files against a *scheme* file next to them, follows `extend`
 includes recursively, and assists while editing.
 
@@ -164,24 +164,29 @@ locations.
 
 ## YAML support
 
-The built-in parser supports block and flow collections, plain / quoted / block
-scalars (`|`, `>`, chomping and indentation indicators), comments, anchors,
-aliases, tags and the merge key. Only the first document of a file is
+Parsing is done by the [`yaml`](https://eemeli.org/yaml/) package (YAML 1.2,
+bundled into the extension, so nothing has to be installed). Anchors, aliases,
+tags and the merge key `<<` are supported. Only the first document of a file is
 validated. Values are typed with the YAML 1.2 core schema (`yes` is a string,
-`1.2` is a number — quote versions).
+`1.2` is a number, so quote versions).
 
 ## Development
 
 ```sh
-npm install      # TypeScript + type definitions only (dev dependencies)
-npm run compile
-npm test         # unit tests with node:test
+npm install
+npm run bundle     # esbuild → dist/extension.js (the `yaml` package is inlined)
+npm run typecheck
+npm test           # tsc → out/, unit tests with node:test
+npm run package    # vsce package (runs a minified bundle first)
 ```
 
-Open the repository in VS Code and press <kbd>F5</kbd> to start an Extension
-Development Host with the `example` folder. Package with `npx @vscode/vsce package`.
+All packages are dev dependencies: the published extension is a single bundled
+file without `node_modules`. Open the repository in VS Code and press
+<kbd>F5</kbd> to bundle and start an Extension Development Host with the
+`example` folder.
 
-Source layout: `src/core/` contains the editor independent parts (YAML parser,
-include resolver, scheme compiler, validator, completion / hover logic) and is
-covered by the tests in `src/test/`; `src/manager.ts` tracks files and
-diagnostics; `src/providers.ts` adapts the core to the VS Code API.
+Source layout: `src/core/` contains the editor independent parts (YAML adapter
+around the `yaml` package, include resolver, scheme compiler, validator,
+completion / hover logic) and is covered by the tests in `src/test/`;
+`src/manager.ts` tracks files and diagnostics; `src/providers.ts` adapts the
+core to the VS Code API.

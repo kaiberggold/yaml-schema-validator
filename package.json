@@ -18,7 +18,7 @@
     "validation",
     "config"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "extensionKind": [
     "workspace"
   ],
@@ -80,15 +80,20 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run typecheck && npm run bundle -- --minify",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap --watch",
+    "typecheck": "tsc -p ./ --noEmit",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/test/*.test.js"
+    "test": "npm run compile && node --test out/test/*.test.js",
+    "package": "npx @vscode/vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
     "@types/vscode": "~1.85.0",
-    "typescript": "^5.9.3"
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "yaml": "^2.9.1"
   },
   "repository": {
     "type": "git",

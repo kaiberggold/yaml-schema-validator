@@ -1,7 +1,6 @@
-.vscode/**
-src/**
-out/test/**
-example/**
-**/*.map
-tsconfig.json
-.gitignore
+**
+!dist/extension.js
+!package.json
+!README.md
+!CHANGELOG.md
+!LICENSE*
