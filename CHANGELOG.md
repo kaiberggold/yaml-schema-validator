@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 (in development)
+## 0.5.0
 
 - JSON Schema 2020-12 (the current version) is the default for scheme files: `$defs`, `prefixItems`,
   `dependentRequired`, `dependentSchemas`, `unevaluatedProperties`, `unevaluatedItems`, `minContains`,
