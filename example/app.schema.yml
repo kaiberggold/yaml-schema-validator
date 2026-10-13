@@ -1,5 +1,5 @@
-# Scheme for app.yml: a JSON Schema (draft-07) written in YAML.
-$schema: "http://json-schema.org/draft-07/schema#"
+# Scheme for app.yml: a JSON Schema (2020-12) written in YAML.
+$schema: "https://json-schema.org/draft/2020-12/schema"
 description: Application configuration.
 type: object
 required: [name, version, server]
@@ -37,7 +37,7 @@ properties:
     minimum: 1
     description: Request timeout in seconds.
   server:
-    $ref: "#/definitions/server"
+    $ref: "#/$defs/server"
   database:
     type: object
     description: Database settings, usually included from `database/db.yml` (validated by its own scheme).
@@ -45,13 +45,13 @@ properties:
     type: array
     description: Optional features.
     items:
-      $ref: "#/definitions/feature"
+      $ref: "#/$defs/feature"
   debug:
     type: boolean
     deprecationMessage: "use 'logLevel: debug' instead"
     description: Old switch for debug output.
 
-definitions:
+$defs:
   server:
     type: object
     description: HTTP server settings.

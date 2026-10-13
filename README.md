@@ -1,7 +1,7 @@
 # YAML Scheme Validator
 
 A VS Code extension (TypeScript) that validates YAML configuration files
-against a *scheme*, a **JSON Schema (draft-07) written in YAML**, next to them
+against a *scheme*, a **JSON Schema (2020-12) written in YAML**, next to them
 or declared in their first line. It follows `extends` includes recursively and
 assists while editing. Because schemes are standard JSON Schema, the
 [Red Hat YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml)
@@ -10,7 +10,7 @@ and other JSON Schema tools can use the same files as a backup.
 | Feature | |
 |---|---|
 | Scheme lookup | `name.yml` is validated by `name.schema.yml` in the same folder (`.yaml` works too, the `schema` part is configurable), or by the scheme named in its first line: `# yaml-language-server: $schema=path/to/x.schema.yml` |
-| Schemes | JSON Schema draft-07 in YAML, including `$ref` to other files, plus optional extensions for messages, severities and links |
+| Schemes | JSON Schema 2020-12 (or draft-07 / 2019-09) in YAML, including `$ref` to other files, plus optional extensions for messages, severities and links |
 | Includes | `extends: other.yml`, `extends: [a.yml, b.yml]` or `key: !extends other.yml`, fully recursive with cycle detection |
 | Diagnostics | Error / warning / info squiggles with customizable messages, clickable links to the scheme rule, related files and the include chain |
 | Live refresh | Revalidates while typing and whenever a YAML file, an included file or a scheme changes on disk (similar to CMake re-configuring) |
@@ -19,7 +19,7 @@ and other JSON Schema tools can use the same files as a backup.
 | Navigation | Ctrl+Click on `extends` paths, *Go to Definition* on keys (jumps into the scheme) and on `$ref` in schemes |
 | Anchors | Unused anchors (`&name`) are greyed out; hover over `&name` or `*name` shows the anchored content and where it is used; *Go to Definition* / *Find All References* |
 
-Scheme files themselves are checked against a built-in draft-07 meta-scheme, so
+Scheme files themselves are checked against a built-in meta-scheme, so
 you get completion, hover help and errors while writing schemes as well.
 
 ## Installation
@@ -61,7 +61,7 @@ database:
 `app.schema.yml`
 
 ```yaml
-$schema: "http://json-schema.org/draft-07/schema#"
+$schema: "https://json-schema.org/draft/2020-12/schema"
 description: Application configuration.
 type: object
 required: [name, server]
@@ -75,10 +75,10 @@ properties:
     description: Technical name of the application.
     patternErrorMessage: "The name must be lowercase kebab-case"
   server:
-    $ref: "#/definitions/server"
+    $ref: "#/$defs/server"
   database:
     type: object
-definitions:
+$defs:
   server:
     type: object
     properties:
@@ -154,8 +154,9 @@ including file's scheme where it is mounted (the status bar shows `via app.yml`)
 
 ## Scheme reference
 
-Schemes are [JSON Schema draft-07](https://json-schema.org/specification-links#draft-7)
-documents written in YAML. All validation keywords are supported:
+Schemes are [JSON Schema 2020-12](https://json-schema.org/specification) documents
+written in YAML (the current version, used when `$schema` is missing). All
+validation keywords are supported:
 
 | Keywords | |
 |---|---|
@@ -163,12 +164,22 @@ documents written in YAML. All validation keywords are supported:
 | `enum`, `const` | Allowed values |
 | `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` | Numbers |
 | `minLength`, `maxLength`, `pattern`, `format` | Strings. Checked formats: `date-time`, `date`, `time`, `email`, `hostname`, `ipv4`, `ipv6`, `uri`, `uri-reference`, `json-pointer`, `regex` |
-| `items` (schema or list), `additionalItems`, `minItems`, `maxItems`, `uniqueItems`, `contains` | Arrays |
-| `properties`, `patternProperties`, `additionalProperties`, `required`, `propertyNames`, `minProperties`, `maxProperties`, `dependencies` | Objects |
+| `prefixItems`, `items`, `minItems`, `maxItems`, `uniqueItems`, `contains`, `minContains`, `maxContains`, `unevaluatedItems` | Arrays |
+| `properties`, `patternProperties`, `additionalProperties`, `required`, `propertyNames`, `minProperties`, `maxProperties`, `dependentRequired`, `dependentSchemas`, `unevaluatedProperties` | Objects |
 | `allOf`, `anyOf`, `oneOf`, `not`, `if` / `then` / `else` | Combinations |
-| `$ref`, `definitions` | `#/definitions/x`, any JSON pointer, `other.schema.yml` or `other.schema.yml#/definitions/x` |
+| `$ref`, `$defs`, `$anchor` | `#/$defs/x`, any JSON pointer, `#anchor`, `other.schema.yml` or `other.schema.yml#/$defs/x` (`$dynamicRef` is resolved like `$ref`) |
 | `true` / `false` | Boolean schemas (`legacyKey: false` forbids a key) |
-| `title`, `description`, `default`, `examples`, `$comment`, `$schema`, `$id` | Documentation, used by hover and completion |
+| `title`, `description`, `default`, `examples`, `deprecated`, `$comment`, `$schema`, `$id` | Documentation, used by hover and completion |
+
+`unevaluatedProperties: false` reports keys that no keyword evaluated, including
+keys declared in `allOf`, `anyOf`, `oneOf`, `if` / `then` / `else` or a `$ref`;
+`additionalProperties: false` only sees the `properties` next to it.
+
+Older schemes keep working: with `$schema: "http://json-schema.org/draft-07/schema#"`
+(or `2019-09`) the draft-07 forms `definitions`, `dependencies`, `items: [...]` +
+`additionalItems` are understood (they are accepted in 2020-12 schemes as well).
+The only difference in behaviour is `$ref`: since 2019-09 keywords next to a
+`$ref` apply too, in draft-07 they only add documentation and messages.
 
 As in JSON Schema, keys that are not listed are allowed unless
 `additionalProperties: false` is set. For keys whose names are free but whose
@@ -199,8 +210,9 @@ Problem kinds (the keys of `x-errorMessages` / `x-severity`) are the keyword
 names: `type`, `required`, `additionalProperties` (unknown key), `enum`, `const`,
 `pattern`, `format`, `minimum`, `maximum`, `exclusiveMinimum`,
 `exclusiveMaximum`, `multipleOf`, `minLength`, `maxLength`, `minItems`,
-`maxItems`, `uniqueItems`, `contains`, `additionalItems`, `minProperties`,
-`maxProperties`, `propertyNames`, `dependencies`, `anyOf`, `oneOf`, `not`,
+`maxItems`, `uniqueItems`, `contains`, `maxContains`, `additionalItems` (`items: false`),
+`unevaluatedItems`, `minProperties`, `maxProperties`, `propertyNames`, `dependentRequired`,
+`unevaluatedProperties`, `anyOf`, `oneOf`, `not`,
 `false`, `deprecated`. A message for `required` can be written on the object or
 on the required property itself.
 
@@ -210,7 +222,7 @@ to), `${file}`, `${line}` (location of the problem), `${scheme}`, `${ruleLine}`
 (location of the rule), `${title}`, `${description}`, `${default}`, `${const}`,
 `${format}`, the keyword values (`${minimum}`, `${maxLength}`, `${pattern}`, ...),
 plus `${count}` (number of items / keys), `${length}` (string length),
-`${reason}` (deprecation), `${dependency}` and `${missing}` (dependencies).
+`${reason}` (deprecation), `${dependency}` and `${missing}` (`dependentRequired`).
 
 Red Hat YAML shows `errorMessage` / `patternErrorMessage` verbatim, without filling in
 placeholders. Put messages with placeholders into `x-errorMessages`; Red Hat
@@ -222,7 +234,7 @@ locations.
 
 ## Red Hat YAML as backup
 
-Scheme files are valid draft-07 schemas, so the Red Hat YAML extension (and
+Scheme files are valid JSON Schemas (2020-12 is supported by Red Hat YAML), so the Red Hat YAML extension (and
 other tools built on `yaml-language-server`, or any JSON Schema validator after
 converting the YAML) can validate with them:
 

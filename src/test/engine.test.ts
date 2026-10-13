@@ -180,7 +180,7 @@ test('arrays: tuple items, additionalItems, contains', () => {
     assert.deepEqual(summary(r.problems), [
         "a.yml:1 error 'pair[1]' must be integer, found string 'b'",
         "a.yml:1 error 'pair' allows at most 2 item(s)",
-        `a.yml:2 error 'list' must contain at least one item of the form "main"`,
+        `a.yml:2 error 'list' must contain at least 1 item(s) of the form "main", found 0`,
     ]);
 });
 
@@ -461,4 +461,86 @@ test('unused anchors are reported as hints', () => {
     assert.equal(p0.kind, 'anchor');
     assert.deepEqual(p0.range, { start: { line: 2, character: 3 }, end: { line: 2, character: 10 } });
     assert.deepEqual(summary(run(files, 'a.yml', { unusedAnchors: false }).problems), []);
+});
+
+test('2020-12: prefixItems, items false, minContains / maxContains, unevaluatedItems', () => {
+    const scheme = [
+        '$schema: "https://json-schema.org/draft/2020-12/schema"',
+        'properties:',
+        '  pair:',
+        '    prefixItems: [{type: string}, {type: integer}]',
+        '    items: false',
+        '  tags:',
+        '    contains: {const: main}',
+        '    minContains: 2',
+        '    maxContains: 3',
+        '  list:',
+        '    prefixItems: [{type: string}]',
+        '    unevaluatedItems: false',
+        '',
+    ].join('\n');
+    const r = run({ 'a.schema.yml': scheme, 'a.yml': 'pair: [a, 1, x]\ntags: [main, other]\nlist: [a, b]\n' }, 'a.yml');
+    assert.deepEqual(summary(r.problems), [
+        "a.yml:1 error 'pair' allows at most 2 item(s)",
+        `a.yml:2 error 'tags' must contain at least 2 item(s) of the form "main", found 1`,
+        "a.yml:3 error 'list' allows at most 1 item(s)",
+    ]);
+});
+
+test('2020-12: $defs, $anchor, dependentRequired and dependentSchemas', () => {
+    const scheme = [
+        'properties:',
+        '  port: {$ref: "#/$defs/port"}',
+        '  host: {$ref: "#hostname"}',
+        'dependentRequired:',
+        '  user: [password]',
+        'dependentSchemas:',
+        '  tls:',
+        '    required: [cert]',
+        '$defs:',
+        '  port: {type: integer}',
+        '  host:',
+        '    $anchor: hostname',
+        '    type: string',
+        '',
+    ].join('\n');
+    const r = run({ 'a.schema.yml': scheme, 'a.yml': 'port: x\nhost: 1\nuser: u\ntls: true\n' }, 'a.yml');
+    assert.deepEqual(summary(r.problems), [
+        "a.yml:1 error 'port' must be integer, found string 'x'",
+        "a.yml:2 error 'host' must be string, found integer '1'",
+        "a.yml:3 error 'user' requires 'password' to be present",
+        "a.yml:1 error Missing required key 'cert'",
+    ]);
+});
+
+test('unevaluatedProperties sees keys evaluated in allOf, $ref and if/then', () => {
+    const scheme = [
+        '$defs:',
+        '  base:',
+        '    properties:',
+        '      name: {type: string}',
+        'allOf:',
+        '  - $ref: "#/$defs/base"',
+        'properties:',
+        '  kind: {enum: [file, url]}',
+        'if: {properties: {kind: {const: file}}}',
+        'then: {properties: {path: {type: string}}}',
+        'unevaluatedProperties: false',
+        '',
+    ].join('\n');
+    const ok = run({ 'a.schema.yml': scheme, 'a.yml': 'name: n\nkind: file\npath: p\n' }, 'a.yml');
+    assert.deepEqual(summary(ok.problems), []);
+    const bad = run({ 'a.schema.yml': scheme, 'a.yml': 'name: n\nkind: url\npath: p\nnmae: x\n' }, 'a.yml');
+    assert.deepEqual(summary(bad.problems), [
+        "a.yml:3 warning Unknown key 'path'. Allowed keys: kind",
+        "a.yml:4 warning Unknown key 'nmae'. Allowed keys: kind",
+    ]);
+});
+
+test('$ref next to other keywords: applied since 2019-09, only annotating in draft-07', () => {
+    const body = 'properties:\n  n:\n    $ref: "#/$defs/int"\n    minimum: 10\n$defs:\n  int: {type: integer}\n';
+    const modern = run({ 'a.schema.yml': body, 'a.yml': 'n: 5\n' }, 'a.yml');
+    assert.deepEqual(summary(modern.problems), ["a.yml:1 error 'n' must be at least 10, found 5"]);
+    const legacy = run({ 'a.schema.yml': '$schema: "http://json-schema.org/draft-07/schema#"\n' + body.replace(/\$defs/g, 'definitions'), 'a.yml': 'n: 5\n' }, 'a.yml');
+    assert.deepEqual(summary(legacy.problems), []);
 });

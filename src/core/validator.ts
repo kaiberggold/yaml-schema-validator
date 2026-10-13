@@ -50,11 +50,14 @@ const DEFAULT_MESSAGES: Record<ProblemKind, string> = {
     minItems: "'${key}' must have at least ${minItems} item(s), found ${count}",
     maxItems: "'${key}' must have at most ${maxItems} item(s), found ${count}",
     uniqueItems: "Duplicate item ${value} in '${key}'",
-    contains: "'${key}' must contain at least one item of the form ${expected}",
+    contains: "'${key}' must contain at least ${minContains} item(s) of the form ${expected}, found ${count}",
+    maxContains: "'${key}' must contain at most ${maxContains} item(s) of the form ${expected}, found ${count}",
+    unevaluatedProperties: "Unknown key '${key}'.${hint}",
+    unevaluatedItems: "'${key}' allows at most ${count} item(s)",
     minProperties: "'${key}' must have at least ${minProperties} key(s), found ${count}",
     maxProperties: "'${key}' must have at most ${maxProperties} key(s), found ${count}",
     propertyNames: "Key '${value}' is not allowed in '${key}'${detail}",
-    dependencies: "'${dependency}' requires '${missing}' to be present",
+    dependentRequired: "'${dependency}' requires '${missing}' to be present",
     anyOf: "'${key}' does not match any of the allowed forms: ${expected}",
     oneOf: "'${key}' must match exactly one of: ${expected}${detail}",
     not: "'${key}' must not be ${expected}",
@@ -240,14 +243,14 @@ export class Validator {
         });
     }
 
-    /** Validates without reporting; true when no errors would be reported. */
-    private passes(node: ENode, schema: SchemaNode, ctx: Ctx): boolean {
+    /** Validates without reporting; `ok` when no errors would be reported. */
+    private passes(node: ENode, schema: SchemaNode, ctx: Ctx): { ok: boolean; ev: Evaluated } {
         const saved = this.problems;
         this.problems = [];
         this.dry++;
         try {
-            this.validate(node, schema, ctx);
-            return !this.problems.some((p) => p.severity === 'error');
+            const ev = this.validate(node, schema, ctx);
+            return { ok: !this.problems.some((p) => p.severity === 'error'), ev };
         } finally {
             this.dry--;
             this.problems = saved;
@@ -260,8 +263,13 @@ export class Validator {
         return !!this.options.hasOwnScheme?.(file);
     }
 
-    private validate(node: ENode, raw: SchemaNode, ctx: Ctx): void {
+    /**
+     * Validates `node` against `raw`. Returns the keys / items evaluated by this
+     * schema and its subschemas (for `unevaluatedProperties` / `unevaluatedItems`).
+     */
+    private validate(node: ENode, raw: SchemaNode, ctx: Ctx): Evaluated {
         const s = deref(raw);
+        const ev = evaluated();
         if (!this.dry) {
             for (const f of node.mounted ?? []) {
                 const k = fileKey(f);
@@ -272,16 +280,17 @@ export class Validator {
         }
         if (this.ownedElsewhere(node.file)) {
             // e.g. `key: !extends part.yml` where part.yml has its own scheme
-            return;
+            ev.allProps = ev.allItems = true;
+            return ev;
         }
         this.annotate(node.file, { start: node.start, end: node.end, kind: 'value', schema: s, key: ctx.key, path: ctx.path });
         if (s.bool === true) {
-            return;
+            return ev;
         }
         const base = { key: ctx.key, path: ctx.path, value: valueText(node), actual: describeValue(node) };
         if (s.bool === false) {
             this.report('false', s, this.anchor(node, ctx.entry), base, node);
-            return;
+            return ev;
         }
         if ((s.deprecated || s.deprecationMessage) && ctx.entry) {
             const reason = s.deprecationMessage ? `: ${s.deprecationMessage}` : '';
@@ -290,7 +299,7 @@ export class Validator {
         const at = this.anchor(node, ctx.entry);
         if (s.types && !accepts(s.types, node)) {
             this.report('type', s, at, { ...base, expected: s.types.join(' or ') }, node);
-            return;
+            return ev;
         }
         if (s.enum || s.hasConst) {
             const v = toJs(node);
@@ -340,31 +349,49 @@ export class Validator {
                 }
             }
         } else if (node.kind === 'seq') {
-            this.validateArray(node, s, ctx);
+            merge(ev, this.validateArray(node, s, ctx));
         } else {
-            this.validateObject(node, s, ctx);
+            merge(ev, this.validateObject(node, s, ctx));
         }
         for (const part of s.allOf ?? []) {
-            this.validate(node, part, ctx);
+            merge(ev, this.validate(node, part, ctx));
         }
         if (s.anyOf?.length) {
-            this.validateAlternatives('anyOf', s.anyOf, node, s, ctx);
+            merge(ev, this.validateAlternatives('anyOf', s.anyOf, node, s, ctx));
         }
         if (s.oneOf?.length) {
-            this.validateAlternatives('oneOf', s.oneOf, node, s, ctx);
+            merge(ev, this.validateAlternatives('oneOf', s.oneOf, node, s, ctx));
         }
-        if (s.not && this.passes(node, s.not, ctx)) {
+        if (s.not && this.passes(node, s.not, ctx).ok) {
             this.report('not', s, at, { ...base, expected: describeType(s.not) }, node);
         }
         if (s.if) {
-            const branch = this.passes(node, s.if, ctx) ? s.then : s.else;
+            const cond = this.passes(node, s.if, ctx);
+            const branch = cond.ok ? s.then : s.else;
+            if (cond.ok) {
+                merge(ev, cond.ev);
+            }
             if (branch) {
-                this.validate(node, branch, ctx);
+                merge(ev, this.validate(node, branch, ctx));
             }
         }
+        if (node.kind === 'map') {
+            for (const [dependency, dep] of s.dependentSchemas ?? []) {
+                if (node.entries.some((e) => e.key === dependency)) {
+                    merge(ev, this.validate(node, dep, ctx));
+                }
+            }
+            if (s.unevaluatedProperties) {
+                this.validateUnevaluatedProperties(node, s, ctx, ev);
+            }
+        } else if (node.kind === 'seq' && s.unevaluatedItems) {
+            this.validateUnevaluatedItems(node, s, ctx, ev);
+        }
+        return ev;
     }
 
-    private validateArray(node: ESeq, s: SchemaNode, ctx: Ctx): void {
+    private validateArray(node: ESeq, s: SchemaNode, ctx: Ctx): Evaluated {
+        const ev = evaluated();
         const count = node.items.length;
         const at = this.anchor(node, ctx.entry);
         const v = { key: ctx.key, path: ctx.path, count, value: valueText(node), actual: 'an array' };
@@ -384,42 +411,53 @@ export class Validator {
                 seen.push(js);
             }
         }
-        const itemCtx = (i: number): Ctx => ({ path: `${ctx.path}[${i}]`, key: `${ctx.key}[${i}]` });
-        if (Array.isArray(s.items)) {
-            const tuple = s.items;
-            node.items.forEach((item, i) => {
-                if (i < tuple.length) {
-                    this.validate(item, tuple[i], itemCtx(i));
-                } else if (s.additionalItems) {
-                    if (deref(s.additionalItems).bool === false) {
-                        if (i === tuple.length) {
-                            this.report('additionalItems', s, this.anchor(item), { ...v, count: tuple.length }, item);
-                        }
-                    } else {
-                        this.validate(item, s.additionalItems, itemCtx(i));
+        const prefix = s.prefixItems ?? [];
+        node.items.forEach((item, i) => {
+            if (i < prefix.length) {
+                this.validate(item, prefix[i], itemCtx(ctx, i));
+                ev.items.add(i);
+            } else if (s.items) {
+                if (deref(s.items).bool === false) {
+                    if (i === prefix.length) {
+                        this.report('additionalItems', s, this.anchor(item), { ...v, count: prefix.length }, item);
                     }
+                } else {
+                    this.validate(item, s.items, itemCtx(ctx, i));
                 }
-            });
-        } else if (s.items) {
-            node.items.forEach((item, i) => this.validate(item, s.items as SchemaNode, itemCtx(i)));
+            }
+        });
+        if (s.items) {
+            ev.allItems = true;
         }
-        if (s.contains && !node.items.some((item, i) => this.passes(item, s.contains!, itemCtx(i)))) {
-            this.report('contains', s, at, { ...v, expected: describeType(s.contains) }, node);
+        if (s.contains) {
+            const matching = node.items.map((item, i) => (this.passes(item, s.contains!, itemCtx(ctx, i)).ok ? i : -1)).filter((i) => i >= 0);
+            matching.forEach((i) => ev.items.add(i));
+            const min = s.minContains ?? 1;
+            const cv = { ...v, expected: describeType(s.contains), minContains: min, maxContains: s.maxContains, count: matching.length };
+            if (matching.length < min) {
+                this.report('contains', s, at, cv, node);
+            }
+            if (s.maxContains !== undefined && matching.length > s.maxContains) {
+                this.report('maxContains', s, at, cv, node);
+            }
         }
+        return ev;
     }
 
-    private validateObject(node: EMap, s: SchemaNode, ctx: Ctx): void {
+    private validateObject(node: EMap, s: SchemaNode, ctx: Ctx): Evaluated {
+        const ev = evaluated();
         const present = new Set(node.entries.map((e) => e.key));
         const required = new Set(s.required ?? []);
         for (const entry of node.entries) {
             if (this.ownedElsewhere(entry.file)) {
                 // merged in from a file with its own scheme: validated there
+                ev.props.add(entry.key);
                 continue;
             }
             const childPath = ctx.path ? `${ctx.path}.${entry.key}` : entry.key;
             if (s.propertyNames) {
                 const keyNode: EScalar = { kind: 'scalar', value: entry.key, type: 'str', file: entry.file, start: entry.start, end: entry.end, via: entry.value.via };
-                if (!this.passes(keyNode, s.propertyNames, { path: childPath, key: entry.key })) {
+                if (!this.passes(keyNode, s.propertyNames, { path: childPath, key: entry.key }).ok) {
                     const pn = deref(s.propertyNames);
                     const detail = pn.pattern ? ` (keys must match /${pn.pattern.source}/)` : pn.enum ? ` (allowed: ${pn.enum.map(fmt).join(', ')})` : '';
                     this.report('propertyNames', s, entry, { key: ctx.key, path: childPath, value: entry.key, detail }, entry.value);
@@ -436,42 +474,18 @@ export class Validator {
                 }
             }
             if (!targets.length && s.additionalProperties) {
-                const ap = deref(s.additionalProperties);
-                if (ap.bool === false) {
-                    const sev = typeof s.severity === 'string' ? s.severity : s.severity?.additionalProperties;
-                    if (sev || this.options.unknownKeySeverity !== 'ignore') {
-                        const names = [...(s.properties?.keys() ?? [])];
-                        const close = closest(entry.key, names);
-                        const patterns = (s.patternProperties ?? []).map((p) => `/${p.source}/`);
-                        const allowed = [...names, ...patterns].join(', ');
-                        const hint = close ? ` Did you mean '${close}'?` : allowed ? ` Allowed keys: ${allowed}` : '';
-                        const defaultSev = this.options.unknownKeySeverity === 'ignore' ? undefined : this.options.unknownKeySeverity;
-                        this.report(
-                            'additionalProperties',
-                            s,
-                            entry,
-                            { key: entry.key, path: childPath, allowed, hint, value: valueText(entry.value), parent: ctx.key },
-                            entry.value,
-                            defaultSev,
-                        );
-                    }
+                ev.props.add(entry.key);
+                if (deref(s.additionalProperties).bool === false) {
+                    this.reportUnknownKey('additionalProperties', s, entry, ctx);
                     continue;
                 }
-                if (ap.bool !== true) {
-                    targets.push(s.additionalProperties);
-                }
+                targets.push(s.additionalProperties);
             }
-            if (targets.length) {
-                this.annotate(entry.file, {
-                    start: entry.start,
-                    end: entry.end,
-                    kind: 'key',
-                    schema: deref(targets[0]),
-                    key: entry.key,
-                    path: childPath,
-                    required: required.has(entry.key),
-                });
+            if (!targets.length) {
+                continue;
             }
+            ev.props.add(entry.key);
+            this.annotateKey(entry, targets[0], childPath, required.has(entry.key));
             for (const t of targets) {
                 this.validate(entry.value, t, { path: childPath, key: entry.key, entry });
             }
@@ -503,42 +517,126 @@ export class Validator {
         if (s.maxProperties !== undefined && count > s.maxProperties) {
             this.report('maxProperties', s, at, v, node);
         }
-        for (const [dependency, dep] of s.dependencies ?? []) {
+        for (const [dependency, names] of s.dependentRequired ?? []) {
             if (!present.has(dependency)) {
                 continue;
             }
-            if (Array.isArray(dep)) {
-                const missing = dep.filter((d) => !present.has(d));
-                if (missing.length) {
-                    const e = node.entries.find((x) => x.key === dependency);
-                    this.report('dependencies', s, e ?? at, { ...v, dependency, missing: missing.join("', '") }, node);
-                }
-            } else {
-                this.validate(node, dep, ctx);
+            const missing = names.filter((d) => !present.has(d));
+            if (missing.length) {
+                const e = node.entries.find((x) => x.key === dependency);
+                this.report('dependentRequired', s, e ?? at, { ...v, dependency, missing: missing.join("', '") }, node);
             }
         }
+        return ev;
     }
 
-    private validateAlternatives(kind: 'anyOf' | 'oneOf', alts: SchemaNode[], node: ENode, s: SchemaNode, ctx: Ctx): void {
-        const passing = alts.map((a, i) => (this.passes(node, a, ctx) ? i : -1)).filter((i) => i >= 0);
-        if (passing.length && (kind === 'anyOf' || passing.length === 1)) {
-            this.validate(node, alts[passing[0]], ctx); // for annotations and warnings
+    /** `unevaluatedProperties`: keys that no other keyword of this schema evaluated. */
+    private validateUnevaluatedProperties(node: EMap, s: SchemaNode, ctx: Ctx, ev: Evaluated): void {
+        if (ev.allProps) {
             return;
+        }
+        const forbidden = deref(s.unevaluatedProperties!).bool === false;
+        for (const entry of node.entries) {
+            if (ev.props.has(entry.key) || this.ownedElsewhere(entry.file)) {
+                continue;
+            }
+            const childPath = ctx.path ? `${ctx.path}.${entry.key}` : entry.key;
+            if (forbidden) {
+                this.reportUnknownKey('unevaluatedProperties', s, entry, ctx);
+            } else {
+                this.annotateKey(entry, s.unevaluatedProperties!, childPath, false);
+                this.validate(entry.value, s.unevaluatedProperties!, { path: childPath, key: entry.key, entry });
+            }
+        }
+        ev.allProps = true;
+    }
+
+    /** `unevaluatedItems`: items that no other keyword of this schema evaluated. */
+    private validateUnevaluatedItems(node: ESeq, s: SchemaNode, ctx: Ctx, ev: Evaluated): void {
+        if (ev.allItems) {
+            return;
+        }
+        const forbidden = deref(s.unevaluatedItems!).bool === false;
+        node.items.forEach((item, i) => {
+            if (ev.items.has(i)) {
+                return;
+            }
+            if (forbidden) {
+                this.report('unevaluatedItems', s, this.anchor(item), { key: ctx.key, path: ctx.path, value: valueText(item), count: i }, item);
+            } else {
+                this.validate(item, s.unevaluatedItems!, itemCtx(ctx, i));
+            }
+        });
+        ev.allItems = true;
+    }
+
+    private annotateKey(entry: EEntry, schema: SchemaNode, path: string, required: boolean): void {
+        this.annotate(entry.file, { start: entry.start, end: entry.end, kind: 'key', schema: deref(schema), key: entry.key, path, required });
+    }
+
+    /** A key forbidden by `additionalProperties: false` / `unevaluatedProperties: false`. */
+    private reportUnknownKey(kind: 'additionalProperties' | 'unevaluatedProperties', s: SchemaNode, entry: EEntry, ctx: Ctx): void {
+        const sev = typeof s.severity === 'string' ? s.severity : s.severity?.[kind];
+        if (!sev && this.options.unknownKeySeverity === 'ignore') {
+            return;
+        }
+        const names = [...(s.properties?.keys() ?? [])];
+        const close = closest(entry.key, names);
+        const patterns = (s.patternProperties ?? []).map((p) => `/${p.source}/`);
+        const allowed = [...names, ...patterns].join(', ');
+        const hint = close ? ` Did you mean '${close}'?` : allowed ? ` Allowed keys: ${allowed}` : '';
+        const childPath = ctx.path ? `${ctx.path}.${entry.key}` : entry.key;
+        const defaultSev = this.options.unknownKeySeverity === 'ignore' ? undefined : this.options.unknownKeySeverity;
+        this.report(kind, s, entry, { key: entry.key, path: childPath, allowed, hint, value: valueText(entry.value), parent: ctx.key }, entry.value, defaultSev);
+    }
+
+    private validateAlternatives(kind: 'anyOf' | 'oneOf', alts: SchemaNode[], node: ENode, s: SchemaNode, ctx: Ctx): Evaluated {
+        const results = alts.map((a) => this.passes(node, a, ctx));
+        const passing = results.map((r, i) => (r.ok ? i : -1)).filter((i) => i >= 0);
+        if (passing.length && (kind === 'anyOf' || passing.length === 1)) {
+            // every successful alternative counts as evaluated; validate one for real (annotations, warnings)
+            const ev = this.validate(node, alts[passing[0]], ctx);
+            passing.slice(1).forEach((i) => merge(ev, results[i].ev));
+            return ev;
         }
         const vars = { key: ctx.key, path: ctx.path, expected: alts.map((a) => describeType(a)).join(' | '), actual: describeValue(node), value: valueText(node) };
         const at = this.anchor(node, ctx.entry);
         if (passing.length > 1) {
             this.report('oneOf', s, at, { ...vars, detail: ` (it matches ${passing.length} of them)` }, node);
-            return;
+            return evaluated();
         }
         // nothing matches: if only one alternative is plausible, show its specific problems
         const plausible = alts.map((a, i) => (isPlausible(a, node) ? i : -1)).filter((i) => i >= 0);
         if (plausible.length === 1) {
             this.validate(node, alts[plausible[0]], ctx);
-            return;
+            return evaluated();
         }
         this.report(kind, s, at, { ...vars, detail: '' }, node);
+        return evaluated();
     }
+}
+
+/** Keys / items evaluated by a schema (JSON Schema annotations used by `unevaluated*`). */
+interface Evaluated {
+    props: Set<string>;
+    allProps: boolean;
+    items: Set<number>;
+    allItems: boolean;
+}
+
+function evaluated(): Evaluated {
+    return { props: new Set(), allProps: false, items: new Set(), allItems: false };
+}
+
+function merge(into: Evaluated, from: Evaluated): void {
+    from.props.forEach((p) => into.props.add(p));
+    from.items.forEach((i) => into.items.add(i));
+    into.allProps ||= from.allProps;
+    into.allItems ||= from.allItems;
+}
+
+function itemCtx(ctx: Ctx, i: number): Ctx {
+    return { path: `${ctx.path}[${i}]`, key: `${ctx.key}[${i}]` };
 }
 
 function zeroRange() {

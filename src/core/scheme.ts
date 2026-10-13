@@ -80,12 +80,17 @@ export interface SchemaNode {
     pattern?: RegExp;
     format?: string;
 
-    items?: SchemaNode | SchemaNode[];
-    additionalItems?: SchemaNode;
+    /** Schemas for the first items (`prefixItems`, or a draft-07 `items` list). */
+    prefixItems?: SchemaNode[];
+    /** Schema for the items after `prefixItems` (`items`, or draft-07 `additionalItems` after an `items` list). */
+    items?: SchemaNode;
     minItems?: number;
     maxItems?: number;
     uniqueItems?: boolean;
     contains?: SchemaNode;
+    minContains?: number;
+    maxContains?: number;
+    unevaluatedItems?: SchemaNode;
 
     properties?: Map<string, SchemaNode>;
     patternProperties?: PatternProperty[];
@@ -94,7 +99,11 @@ export interface SchemaNode {
     minProperties?: number;
     maxProperties?: number;
     propertyNames?: SchemaNode;
-    dependencies?: Map<string, string[] | SchemaNode>;
+    /** `dependentRequired` (and the list form of draft-07 `dependencies`). */
+    dependentRequired?: Map<string, string[]>;
+    /** `dependentSchemas` (and the schema form of draft-07 `dependencies`). */
+    dependentSchemas?: Map<string, SchemaNode>;
+    unevaluatedProperties?: SchemaNode;
 
     allOf?: SchemaNode[];
     anyOf?: SchemaNode[];
@@ -124,15 +133,53 @@ export interface SchemeProblem {
     message: string;
 }
 
+/** JSON Schema version of a scheme, from its `$schema` (default: the latest, 2020-12). */
+export type Dialect = 'draft-07' | '2019-09' | '2020-12';
+
+export function dialectOf(schemaUri: unknown): Dialect {
+    if (typeof schemaUri !== 'string') {
+        return '2020-12';
+    }
+    if (/draft-0[3-7]\b/.test(schemaUri)) {
+        return 'draft-07';
+    }
+    return /2019-09/.test(schemaUri) ? '2019-09' : '2020-12';
+}
+
+/** Keywords that only annotate; `$ref` next to other keywords is evaluated alongside them since 2019-09. */
+const ANNOTATION_KEYWORDS = new Set([
+    '$schema',
+    '$id',
+    '$anchor',
+    '$dynamicAnchor',
+    '$recursiveAnchor',
+    '$comment',
+    '$defs',
+    'definitions',
+    'title',
+    'description',
+    'markdownDescription',
+    'default',
+    'examples',
+    'readOnly',
+    'writeOnly',
+    'deprecated',
+    'deprecationMessage',
+    'errorMessage',
+    'patternErrorMessage',
+    'defaultSnippets',
+]);
+
 export interface CompiledScheme {
     file: string;
+    dialect: Dialect;
     root: SchemaNode;
-    /** Entries of `definitions` (for navigation). */
+    /** Entries of `$defs` / `definitions` (for navigation). */
     definitions: Map<string, SchemaNode>;
     problems: SchemeProblem[];
     /** File keys of other scheme files referenced with `$ref` (transitively). */
     deps: Set<string>;
-    /** Schema node at a JSON pointer (`/definitions/x`) of this document. */
+    /** Schema node at a JSON pointer (`/$defs/x`) or `$anchor` name of this document. */
     nodeAt(pointer: string): SchemaNode | undefined;
 }
 
@@ -149,14 +196,17 @@ let nextId = 1;
 export function compileScheme(root: ENode, file: string, loader?: SchemeLoader, register?: (s: CompiledScheme) => void): CompiledScheme {
     const cache = new Map<ENode, SchemaNode>();
     const refs: { node: SchemaNode; v: ENode }[] = [];
+    const anchors = new Map<string, ENode>();
+    const schemaUri = root.kind === 'map' ? root.entries.find((e) => e.key === '$schema')?.value : undefined;
     const scheme: CompiledScheme = {
         file,
+        dialect: dialectOf(schemaUri?.kind === 'scalar' ? schemaUri.value : undefined),
         root: undefined as unknown as SchemaNode,
         definitions: new Map(),
         problems: [],
         deps: new Set(),
         nodeAt: (pointer) => {
-            const e = resolvePointer(root, pointer);
+            const e = pointer && !pointer.startsWith('/') ? anchors.get(decodeURIComponent(pointer)) : resolvePointer(root, pointer);
             if (!e) {
                 return undefined;
             }
@@ -197,8 +247,15 @@ export function compileScheme(root: ENode, file: string, loader?: SchemeLoader, 
             node.bool = e.kind === 'scalar' && e.value === false ? false : true;
             return node;
         }
+        let refValue: ENode | undefined;
+        let legacyTuple: SchemaNode[] | undefined;
+        let additionalItems: SchemaNode | undefined;
+        let constraints = false;
         for (const entry of e.entries) {
             const v = entry.value;
+            if (!ANNOTATION_KEYWORDS.has(entry.key) && !entry.key.startsWith('x-') && !entry.key.startsWith('$')) {
+                constraints = true;
+            }
             switch (entry.key) {
                 case 'type': {
                     const raw = v.kind === 'seq' ? v.items.map((i) => (i.kind === 'scalar' ? i.value : undefined)) : [v.kind === 'scalar' ? v.value : undefined];
@@ -216,11 +273,20 @@ export function compileScheme(root: ENode, file: string, loader?: SchemeLoader, 
                     node[entry.key] = str(v);
                     break;
                 case '$ref':
-                    node.ref = str(v);
-                    if (node.ref !== undefined) {
-                        refs.push({ node, v });
+                case '$dynamicRef': // resolved statically, like $ref
+                case '$recursiveRef':
+                    if (str(v) !== undefined) {
+                        refValue = v;
                     }
                     break;
+                case '$anchor':
+                case '$dynamicAnchor': {
+                    const a = str(v);
+                    if (a !== undefined && !anchors.has(a)) {
+                        anchors.set(a, e);
+                    }
+                    break;
+                }
                 case 'uniqueItems':
                 case 'deprecated':
                     node[entry.key] = bool(v);
@@ -259,6 +325,8 @@ export function compileScheme(root: ENode, file: string, loader?: SchemeLoader, 
                 case 'maxLength':
                 case 'minItems':
                 case 'maxItems':
+                case 'minContains':
+                case 'maxContains':
                 case 'minProperties':
                 case 'maxProperties':
                     node[entry.key] = num(v);
@@ -288,20 +356,38 @@ export function compileScheme(root: ENode, file: string, loader?: SchemeLoader, 
                     }
                     break;
                 case 'dependencies':
+                case 'dependentRequired':
+                case 'dependentSchemas':
                     if (v.kind === 'map') {
-                        node.dependencies = new Map();
                         for (const d of v.entries) {
-                            node.dependencies.set(
-                                d.key,
-                                d.value.kind === 'seq' ? d.value.items.map((i) => String(i.kind === 'scalar' ? i.value : '')) : compile(d.value, d),
-                            );
+                            if (d.value.kind === 'seq') {
+                                node.dependentRequired ??= new Map();
+                                node.dependentRequired.set(
+                                    d.key,
+                                    d.value.items.map((i) => String(i.kind === 'scalar' ? i.value : '')),
+                                );
+                            } else {
+                                node.dependentSchemas ??= new Map();
+                                node.dependentSchemas.set(d.key, compile(d.value, d));
+                            }
                         }
                     }
                     break;
                 case 'items':
-                    node.items = v.kind === 'seq' ? list(v) : compile(v);
+                    if (v.kind === 'seq') {
+                        legacyTuple = list(v); // draft-07 tuple form
+                    } else {
+                        node.items = compile(v);
+                    }
+                    break;
+                case 'prefixItems':
+                    node.prefixItems = list(v);
                     break;
                 case 'additionalItems':
+                    additionalItems = compile(v);
+                    break;
+                case 'unevaluatedItems':
+                case 'unevaluatedProperties':
                 case 'additionalProperties':
                 case 'contains':
                 case 'propertyNames':
@@ -316,6 +402,7 @@ export function compileScheme(root: ENode, file: string, loader?: SchemeLoader, 
                 case 'oneOf':
                     node[entry.key] = list(v);
                     break;
+                case '$defs':
                 case 'definitions':
                     if (v.kind === 'map') {
                         for (const d of v.entries) {
@@ -358,6 +445,24 @@ export function compileScheme(root: ENode, file: string, loader?: SchemeLoader, 
                         node.snippets = v.items.filter((i) => i.kind === 'map').map((i) => toJs(i) as Snippet);
                     }
                     break;
+            }
+        }
+        if (legacyTuple) {
+            // draft-07: `items: [a, b]` + `additionalItems` = 2020-12 `prefixItems` + `items`
+            node.prefixItems ??= legacyTuple;
+            node.items = additionalItems;
+        }
+        if (refValue) {
+            const ref = str(refValue)!;
+            if (constraints && scheme.dialect !== 'draft-07') {
+                // since 2019-09 $ref is applied together with the other keywords
+                const refNode: SchemaNode = { id: nextId++, scheme, file: refValue.file, start: refValue.start, end: refValue.end, ref };
+                node.allOf = [...(node.allOf ?? []), refNode];
+                refs.push({ node: refNode, v: refValue });
+            } else {
+                // draft-07: siblings of $ref only annotate
+                node.ref = ref;
+                refs.push({ node, v: refValue });
             }
         }
         return node;
@@ -538,7 +643,7 @@ export function likelyTypes(node: SchemaNode): TypeName[] {
     if (d.properties || d.patternProperties || d.required || (d.additionalProperties && !d.additionalProperties.bool)) {
         return ['object'];
     }
-    if (d.items || d.contains) {
+    if (d.items || d.prefixItems || d.contains) {
         return ['array'];
     }
     const values = d.enum ?? (d.hasConst ? [d.const] : undefined);
@@ -586,6 +691,6 @@ export function describeType(node: SchemaNode, depth = 0): string {
         return 'any';
     }
     return types
-        .map((t) => (t === 'array' && d.items && !Array.isArray(d.items) && depth <= 3 ? `array of ${describeType(d.items, depth + 1)}` : t))
+        .map((t) => (t === 'array' && d.items && depth <= 3 ? `array of ${describeType(d.items, depth + 1)}` : t))
         .join(' | ');
 }

@@ -96,7 +96,7 @@ async function openScheme(manager: Manager): Promise<void> {
     }
     const root = new Resolver(engine.docs, manager.extendKeyword, () => undefined).buildFile(file);
     const body = inferScheme(root ? toJs(root) : {});
-    const text = `# Scheme for ${path.basename(file)}. Generated from its content (JSON Schema draft-07) - adjust types, add descriptions and \`required: [keys]\` lists.\n${body}`;
+    const text = `# Scheme for ${path.basename(file)}. Generated from its content (JSON Schema 2020-12) - adjust types, add descriptions and \`required: [keys]\` lists.\n${body}`;
     await vscode.workspace.fs.writeFile(vscode.Uri.file(target), Buffer.from(text, 'utf8'));
     await vscode.window.showTextDocument(vscode.Uri.file(target));
 }

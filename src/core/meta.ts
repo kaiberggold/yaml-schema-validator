@@ -8,7 +8,7 @@ const KINDS: [string, string][] = [
     ['type', 'The value has the wrong type.'],
     ['required', 'A required key is missing.'],
     ['additionalProperties', 'A key is not allowed (`additionalProperties: false`).'],
-    ['additionalItems', 'The array has more items than allowed.'],
+    ['additionalItems', 'The array has more items than allowed (`items: false` after `prefixItems`).'],
     ['enum', 'The value is not one of the `enum` values.'],
     ['const', 'The value is not the `const` value.'],
     ['pattern', 'The string does not match `pattern`.'],
@@ -23,11 +23,14 @@ const KINDS: [string, string][] = [
     ['minItems', 'The array has fewer than `minItems` items.'],
     ['maxItems', 'The array has more than `maxItems` items.'],
     ['uniqueItems', 'The array contains duplicates.'],
-    ['contains', 'No array item matches `contains`.'],
+    ['contains', 'Fewer array items than `minContains` (default 1) match `contains`.'],
+    ['maxContains', 'More array items than `maxContains` match `contains`.'],
+    ['unevaluatedProperties', 'A key is not allowed (`unevaluatedProperties: false`).'],
+    ['unevaluatedItems', 'An array item is not allowed (`unevaluatedItems: false`).'],
     ['minProperties', 'The object has fewer than `minProperties` keys.'],
     ['maxProperties', 'The object has more than `maxProperties` keys.'],
     ['propertyNames', 'A key does not match `propertyNames`.'],
-    ['dependencies', 'A key required by `dependencies` is missing.'],
+    ['dependentRequired', 'A key required by `dependentRequired` is missing.'],
     ['anyOf', 'The value matches none of the `anyOf` alternatives.'],
     ['oneOf', 'The value does not match exactly one `oneOf` alternative.'],
     ['not', 'The value matches the `not` schema.'],
@@ -38,17 +41,18 @@ const KINDS: [string, string][] = [
 const kindProps = (valueRef: string, indent: string) =>
     KINDS.map(([k, d]) => `${indent}${k}:\n${indent}  $ref: "${valueRef}"\n${indent}  description: ${JSON.stringify(d)}`).join('\n');
 
-const schemaRef = '"#/definitions/schema"';
+const schemaRef = '"#/$defs/schema"';
 
 export const META_TEXT = `
-$schema: "http://json-schema.org/draft-07/schema#"
+$schema: "https://json-schema.org/draft/2020-12/schema"
 description: |
-  **Scheme file** (a JSON Schema draft-07 document written in YAML). It validates
+  **Scheme file** (a JSON Schema document written in YAML, version 2020-12 unless
+  \`$schema\` names draft-07 or 2019-09). It validates
   the YAML file with the same base name in the same folder (\`app.schema.yml\`
   validates \`app.yml\`) and files that declare it in their first line
   (\`# yaml-language-server: $schema=app.schema.yml\` or \`# schema: app.schema.yml\`).
 $ref: ${schemaRef}
-definitions:
+$defs:
   typeName:
     enum: [string, number, integer, boolean, object, array, "null"]
     x-errorMessages:
@@ -105,16 +109,39 @@ definitions:
     properties:
       $schema:
         type: string
-        description: "JSON Schema dialect, e.g. \`http://json-schema.org/draft-07/schema#\`."
+        description: |
+          JSON Schema version: \`https://json-schema.org/draft/2020-12/schema\` (the default),
+          \`https://json-schema.org/draft/2019-09/schema\` or \`http://json-schema.org/draft-07/schema#\`.
+        examples:
+          - "https://json-schema.org/draft/2020-12/schema"
+          - "http://json-schema.org/draft-07/schema#"
       $id:
         type: string
         description: Identifier of the schema (not used for validation).
       $ref:
         type: string
         description: |
-          Reference to another schema: \`#/definitions/name\` in this file,
-          \`other.schema.yml\` or \`other.schema.yml#/definitions/name\` (relative to this file).
-          Other keywords next to \`$ref\` only add documentation and messages.
+          Reference to another schema: \`#/$defs/name\` in this file, an anchor (\`#name\`),
+          \`other.schema.yml\` or \`other.schema.yml#/$defs/name\` (relative to this file).
+          Since 2019-09 keywords next to \`$ref\` apply as well; in draft-07 they only annotate.
+      $anchor:
+        type: string
+        pattern: "^[A-Za-z_][-A-Za-z0-9._]*$"
+        description: |
+          Name of this schema, referenced with \`$ref: "#name"\`.
+      $dynamicAnchor:
+        type: string
+        description: Dynamic anchor (resolved like \`$anchor\`).
+      $dynamicRef:
+        type: string
+        description: Dynamic reference (resolved like \`$ref\`).
+      $recursiveRef:
+        type: string
+        description: 2019-09 recursive reference (resolved like \`$ref\`).
+      $recursiveAnchor:
+        type: boolean
+      $vocabulary:
+        type: object
       $comment:
         type: string
         description: A comment for schema authors.
@@ -141,12 +168,12 @@ definitions:
           Expected type: \`string\`, \`number\`, \`integer\`, \`boolean\`, \`object\`, \`array\` or \`null\`,
           or a list of them, e.g. \`[string, integer]\`. Without \`type\` every type is accepted.
         anyOf:
-          - $ref: "#/definitions/typeName"
+          - $ref: "#/$defs/typeName"
           - type: array
             minItems: 1
             uniqueItems: true
             items:
-              $ref: "#/definitions/typeName"
+              $ref: "#/$defs/typeName"
       enum:
         type: array
         description: List of allowed values.
@@ -169,10 +196,10 @@ definitions:
         type: number
         description: The number must be less than this value.
       minLength:
-        $ref: "#/definitions/nonNegativeInteger"
+        $ref: "#/$defs/nonNegativeInteger"
         description: Minimal string length.
       maxLength:
-        $ref: "#/definitions/nonNegativeInteger"
+        $ref: "#/$defs/nonNegativeInteger"
         description: Maximal string length.
       pattern:
         type: string
@@ -184,26 +211,40 @@ definitions:
           Format of a string. Checked: \`date-time\`, \`date\`, \`time\`, \`email\`, \`hostname\`,
           \`ipv4\`, \`ipv6\`, \`uri\`, \`uri-reference\`, \`json-pointer\`, \`regex\`.
         examples: [date-time, date, time, email, hostname, ipv4, ipv6, uri, uri-reference, json-pointer, regex]
+      prefixItems:
+        $ref: "#/$defs/schemaArray"
+        description: Schemas for the first array items, by position.
       items:
-        description: Schema for every array item, or a list of schemas for the items by position.
+        description: |
+          Schema for every array item after those in \`prefixItems\` (\`false\`: no more items).
+          A list of schemas is the draft-07 form of \`prefixItems\`.
         anyOf:
           - $ref: ${schemaRef}
-          - $ref: "#/definitions/schemaArray"
+          - $ref: "#/$defs/schemaArray"
       additionalItems:
         $ref: ${schemaRef}
-        description: Schema for items after those listed in \`items\` (when \`items\` is a list).
+        description: "draft-07: schema for items after an \`items\` list (use \`prefixItems\` + \`items\` in 2020-12)."
+      unevaluatedItems:
+        $ref: ${schemaRef}
+        description: Schema for items no other keyword evaluated (also through \`allOf\`, \`$ref\`, ...); \`false\` forbids them.
       minItems:
-        $ref: "#/definitions/nonNegativeInteger"
+        $ref: "#/$defs/nonNegativeInteger"
         description: Minimal number of array items.
       maxItems:
-        $ref: "#/definitions/nonNegativeInteger"
+        $ref: "#/$defs/nonNegativeInteger"
         description: Maximal number of array items.
       uniqueItems:
         type: boolean
         description: Array items must be unique.
       contains:
         $ref: ${schemaRef}
-        description: At least one array item must match this schema.
+        description: At least one array item (or \`minContains\` items) must match this schema.
+      minContains:
+        $ref: "#/$defs/nonNegativeInteger"
+        description: Minimal number of items matching \`contains\` (default 1).
+      maxContains:
+        $ref: "#/$defs/nonNegativeInteger"
+        description: Maximal number of items matching \`contains\`.
       properties:
         type: object
         description: Keys of an object and their schemas.
@@ -221,42 +262,64 @@ definitions:
         description: |
           Schema for keys not matched by \`properties\` / \`patternProperties\`.
           \`false\` reports such keys as unknown. JSON Schema default: \`true\`.
+      unevaluatedProperties:
+        $ref: ${schemaRef}
+        description: |
+          Schema for keys no other keyword evaluated, also through \`allOf\`, \`anyOf\`, \`oneOf\`,
+          \`if\`/\`then\`/\`else\` and \`$ref\`. \`false\` reports them as unknown (unlike
+          \`additionalProperties\`, this works together with combined schemas).
       required:
-        $ref: "#/definitions/stringArray"
+        $ref: "#/$defs/stringArray"
         description: Keys that must be present, e.g. \`[name, port]\`.
         x-errorMessages:
           type: "In JSON Schema 'required' is a list of keys on the enclosing object, e.g. 'required: [name]'"
       minProperties:
-        $ref: "#/definitions/nonNegativeInteger"
+        $ref: "#/$defs/nonNegativeInteger"
         description: Minimal number of keys.
       maxProperties:
-        $ref: "#/definitions/nonNegativeInteger"
+        $ref: "#/$defs/nonNegativeInteger"
         description: Maximal number of keys.
       propertyNames:
         $ref: ${schemaRef}
         description: |
           Schema every key must match, e.g. \`{pattern: "^[a-z]+$"}\`.
+      dependentRequired:
+        type: object
+        description: "When a key is present, these other keys must be present too, e.g. \`{user: [password]}\`."
+        additionalProperties:
+          $ref: "#/$defs/stringArray"
+      dependentSchemas:
+        type: object
+        description: When a key is present, the object must also match this schema.
+        additionalProperties:
+          $ref: ${schemaRef}
       dependencies:
         type: object
-        description: "When a key is present: other keys that must be present (list) or a schema the object must match."
+        description: "draft-07 form of \`dependentRequired\` (list) and \`dependentSchemas\` (schema)."
         additionalProperties:
           anyOf:
             - $ref: ${schemaRef}
-            - $ref: "#/definitions/stringArray"
+            - $ref: "#/$defs/stringArray"
+      $defs:
+        type: object
+        description: |
+          Reusable schemas. Reference them with \`$ref: "#/$defs/<name>"\`.
+        additionalProperties:
+          $ref: ${schemaRef}
       definitions:
         type: object
         description: |
-          Reusable schemas, referenced with \`$ref: "#/definitions/<name>"\`.
+          draft-07 name of \`$defs\`. Reference them with \`$ref: "#/definitions/<name>"\`.
         additionalProperties:
           $ref: ${schemaRef}
       allOf:
-        $ref: "#/definitions/schemaArray"
+        $ref: "#/$defs/schemaArray"
         description: The value must match all schemas.
       anyOf:
-        $ref: "#/definitions/schemaArray"
+        $ref: "#/$defs/schemaArray"
         description: The value must match at least one schema.
       oneOf:
-        $ref: "#/definitions/schemaArray"
+        $ref: "#/$defs/schemaArray"
         description: The value must match exactly one schema.
       not:
         $ref: ${schemaRef}
@@ -272,6 +335,8 @@ definitions:
         type: string
       contentEncoding:
         type: string
+      contentSchema:
+        $ref: ${schemaRef}
       deprecated:
         type: boolean
         description: Marks the key as deprecated (reported as a warning).
@@ -279,14 +344,14 @@ definitions:
         type: string
         description: Marks the key as deprecated, with this text as the reason.
       errorMessage:
-        $ref: "#/definitions/message"
+        $ref: "#/$defs/message"
         description: |
           Custom message for every problem of this schema (also used by VS Code / Red Hat YAML).
           Use \`x-errorMessages\` for messages per keyword.
         x-errorMessages:
           type: "'errorMessage' must be a single text; use 'x-errorMessages' for messages per keyword"
       patternErrorMessage:
-        $ref: "#/definitions/message"
+        $ref: "#/$defs/message"
         description: Custom message when \`pattern\` does not match (also used by VS Code / Red Hat YAML).
       x-errorMessages:
         type: object
@@ -295,24 +360,24 @@ definitions:
           \`pattern\`, \`minimum\`, ...). Overrides \`errorMessage\`.
         additionalProperties: false
         properties:
-${kindProps('#/definitions/message', '          ')}
+${kindProps('#/$defs/message', '          ')}
       x-severity:
         description: Severity of problems found by this schema, for all problems or per keyword.
         anyOf:
-          - $ref: "#/definitions/severity"
+          - $ref: "#/$defs/severity"
           - type: object
             additionalProperties: false
             properties:
-${kindProps('#/definitions/severity', '              ')}
+${kindProps('#/$defs/severity', '              ')}
       x-see:
         description: |
           Related files (e.g. documentation) attached to every problem of this schema
           as clickable locations.
         anyOf:
-          - $ref: "#/definitions/seeEntry"
+          - $ref: "#/$defs/seeEntry"
           - type: array
             items:
-              $ref: "#/definitions/seeEntry"
+              $ref: "#/$defs/seeEntry"
       defaultSnippets:
         type: array
         description: Snippets offered by completion (Red Hat YAML convention).

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- JSON Schema 2020-12 (the current version) is the default for scheme files: `$defs`, `prefixItems`,
+  `dependentRequired`, `dependentSchemas`, `unevaluatedProperties`, `unevaluatedItems`, `minContains`,
+  `maxContains`, `$anchor` (`$dynamicRef` resolved like `$ref`). Keywords next to `$ref` now apply as well;
+  schemes with a draft-07 `$schema` keep the draft-07 behaviour. Built-in meta-scheme, examples and
+  generated starter schemes use 2020-12.
+- Problem kind `dependencies` is now `dependentRequired` (for `x-errorMessages` / `x-severity`).
+
 ## 0.4.1
 
 - Completion: a value chosen right after `key:` gets the separating space (`key: value`).
