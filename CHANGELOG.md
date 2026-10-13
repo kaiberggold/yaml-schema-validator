@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.1
+
+- Completion: a value chosen right after `key:` gets the separating space (`key: value`).
+- Docs: development versions (`0.5.0-devel.1`, ...) with git tags, and how releases are made.
+
+## 0.4.0
+
+- Anchors (`&name`) that no alias uses are greyed out with a hint (setting `yamlScheme.unusedAnchors`).
+- Hover over an anchor or alias shows the anchored content, where it is used and where it is defined.
+- *Go to Definition* on an alias jumps to its anchor; *Find All References* lists the anchor and its aliases.
+
+## 0.3.1
+
+- Docs: installation from GitHub releases.
+
 ## 0.3.0
 
 - **Breaking:** scheme files are now JSON Schema draft-07 documents written in YAML, so the

@@ -3,17 +3,32 @@
 ## Versioning (always)
 
 Every change to the extension (code in `src/`, `package.json` contributions, the
-built-in meta-scheme, behaviour or documentation shipped in the `.vsix`) bumps
-the version in `package.json` **in the same commit**, together with a matching
-section in `CHANGELOG.md`:
+built-in meta-scheme, behaviour or documentation shipped in the `.vsix`) gets the
+next **development version** and a **git tag**, in the same commit:
 
-- patch (`0.3.0` → `0.3.1`): bug fixes, wording, docs
-- minor (`0.3.x` → `0.4.0`): new features, and breaking changes while the version is `0.x`
+1. `npm run bump -- <level>` with the level of the change:
+   - `patch`: bug fixes, wording, docs
+   - `minor`: new features, and breaking changes while the version is `0.x`
+   - `major`: breaking changes from `1.0.0` on
 
-Run `npm install` afterwards so `package-lock.json` carries the same version.
+   It sets `<next release>-devel.<n>` in `package.json` / `package-lock.json`
+   (`0.4.0` → `0.5.0-devel.1` → `0.5.0-devel.2`, a bigger change raises the
+   upcoming release: `0.4.1-devel.3` + minor → `0.5.0-devel.1`) and keeps the
+   `## <next release> (in development)` heading of `CHANGELOG.md` in sync.
+2. Add the change as a bullet under that heading.
+3. Commit and push the branch. The workflow (`.github/workflows/build.yml`) then
+   creates the tag `v<version>` on the commit that introduced the version (Claude
+   sessions cannot push tags themselves). This needs the repository secret
+   `TAG_TOKEN`; without it the run only warns and the tag has to be set by hand.
 
-Repository-only changes (tests, `example/`, `.vscode/`, `CLAUDE.md`, build or
-lock files, anything not shipped in the `.vsix`) do **not** bump the version.
+Releases are **only made when the user asks** (never on your own): `npm run bump -- release`
+turns `0.5.0-devel.2` into `0.5.0` (and the heading into `## 0.5.0`); commit and
+push, the workflow then creates the tag `v0.5.0`, and that tag publishes the
+GitHub release with the `.vsix`.
+
+Repository-only changes (tests, `example/`, `.vscode/`, `.github/`, `scripts/`,
+`CLAUDE.md`, build or lock files, anything not shipped in the `.vsix`) get **no**
+version change and no tag.
 
 ## Checks before committing
 

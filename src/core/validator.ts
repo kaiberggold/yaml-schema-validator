@@ -60,6 +60,7 @@ const DEFAULT_MESSAGES: Record<ProblemKind, string> = {
     not: "'${key}' must not be ${expected}",
     false: "'${key}' is not allowed here",
     deprecated: "'${key}' is deprecated${reason}",
+    anchor: '${message}',
 };
 
 const DEFAULT_SEVERITY: Partial<Record<ProblemKind, Severity>> = {

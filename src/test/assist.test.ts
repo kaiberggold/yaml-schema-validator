@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { ITEM, getCursorContext, keyAt, keyCompletions, keySnippet, valueCompletions, walk, hoverMarkdown, inferScheme, isRequired } from '../core/assist';
+import { ITEM, getCursorContext, keyAt, keyCompletions, keySnippet, valueCompletions, walk, hoverMarkdown, inferScheme, isRequired, anchorAt, anchoredText, anchorMarkdown } from '../core/assist';
+import { parseYaml } from '../core/yaml';
 import { Resolver } from '../core/effective';
 import { Engine, DEFAULT_OPTIONS } from '../core/engine';
 import { compileScheme } from '../core/scheme';
@@ -106,4 +107,18 @@ test('walking through patternProperties, required flags and hover facts', () => 
     assert.equal(isRequired(walk(S, ['server']), 'port'), true);
     assert.equal(isRequired(walk(S, ['server']), 'host'), false);
     assert.match(hoverMarkdown(walk(S, ['server', 'port'])[0], 'port', env, true), /\*required\*/);
+});
+
+test('anchor hover shows the anchored content and its uses', () => {
+    const text = 'defaults: &defaults\n  host: h\n  ports:\n    - 1\nprod:\n  <<: *defaults\nlone: &lone x\n';
+    const d = parseYaml(text);
+    const lineOf = (o: number) => text.slice(0, o).split('\n').length;
+    const onAnchor = anchorAt(d, text.indexOf('&defaults') + 2)!;
+    assert.equal(onAnchor.kind, 'anchor');
+    assert.equal(anchoredText(text, onAnchor.anchor), 'host: h\nports:\n  - 1');
+    assert.equal(anchorMarkdown(text, onAnchor, lineOf), '**&defaults** · used 1 time (line 6)\n\n```yaml\nhost: h\nports:\n  - 1\n```');
+    const onAlias = anchorAt(d, text.indexOf('*defaults') + 1)!;
+    assert.equal(onAlias.kind, 'alias');
+    assert.match(anchorMarkdown(text, onAlias, lineOf), /^\*\*\\\*defaults\*\* → `&defaults` \(line 1\)/);
+    assert.match(anchorMarkdown(text, anchorAt(d, text.indexOf('&lone'))!, lineOf), /never used/);
 });

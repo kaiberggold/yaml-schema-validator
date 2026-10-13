@@ -4,7 +4,7 @@ import { inferScheme } from './core/assist';
 import { Resolver, toJs } from './core/effective';
 import { configCandidates, isSchemeFile, isYamlFile, schemeCandidates } from './core/paths';
 import { Manager } from './manager';
-import { CompletionProvider, DefinitionProvider, HoverProvider, LinkProvider, SELECTOR } from './providers';
+import { AnchorReferenceProvider, CompletionProvider, DefinitionProvider, HoverProvider, LinkProvider, SELECTOR } from './providers';
 
 export function activate(context: vscode.ExtensionContext): void {
     const log = vscode.window.createOutputChannel('YAML Scheme Validator');
@@ -19,6 +19,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.languages.registerHoverProvider(SELECTOR, new HoverProvider(manager)),
         vscode.languages.registerDefinitionProvider(SELECTOR, new DefinitionProvider(manager)),
         vscode.languages.registerDocumentLinkProvider(SELECTOR, new LinkProvider(manager)),
+        vscode.languages.registerReferenceProvider(SELECTOR, new AnchorReferenceProvider(manager)),
         vscode.commands.registerCommand('yamlScheme.revalidateAll', () => manager.revalidateAll()),
         vscode.commands.registerCommand('yamlScheme.openScheme', () => openScheme(manager)),
         vscode.commands.registerCommand('yamlScheme.addModeline', () => addModeline(manager)),

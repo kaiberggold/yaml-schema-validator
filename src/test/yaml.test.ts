@@ -134,3 +134,15 @@ test('scheme declaration in the first line', () => {
     assert.equal(schemeDeclaration('# just a comment\n'), undefined);
     assert.equal(schemeDeclaration('a: 1\n# schema: x.yml\n'), undefined);
 });
+
+test('anchors with their token position, content and uses', () => {
+    const text = 'base: &base\n  host: h\nlist: &l [1, 2]\nunused: &nope x\nsrv:\n  <<: *base\n  extra: *l\nother: *base\n';
+    const d = parseYaml(text);
+    const byName = Object.fromEntries(d.anchors.map((a) => [a.name, a]));
+    assert.deepEqual(Object.keys(byName), ['base', 'l', 'nope']);
+    assert.equal(text.slice(byName.base.start, byName.base.end), '&base');
+    assert.equal(text.slice(byName.l.node.start, byName.l.node.end), '[1, 2]');
+    assert.deepEqual(byName.base.uses.map((u) => text.slice(u.start, u.end)), ['*base', '*base']);
+    assert.equal(byName.l.uses.length, 1);
+    assert.equal(byName.nope.uses.length, 0);
+});

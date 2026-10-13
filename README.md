@@ -17,9 +17,22 @@ and other JSON Schema tools can use the same files as a backup.
 | Completion | Keys (with snippets for enums, booleans, defaults, objects and arrays), values, `extends` file paths |
 | Hover | Description, type, default, allowed values, constraints and a link to the definition in the scheme |
 | Navigation | Ctrl+Click on `extends` paths, *Go to Definition* on keys (jumps into the scheme) and on `$ref` in schemes |
+| Anchors | Unused anchors (`&name`) are greyed out; hover over `&name` or `*name` shows the anchored content and where it is used; *Go to Definition* / *Find All References* |
 
 Scheme files themselves are checked against a built-in draft-07 meta-scheme, so
 you get completion, hover help and errors while writing schemes as well.
+
+## Installation
+
+Download `yaml-scheme-validator-<version>.vsix` from the
+[GitHub releases](https://github.com/kaiberggold/yaml-schema-validator/releases)
+and install it with *Extensions: Install from VSIX…* in the command palette, or:
+
+```sh
+code --install-extension yaml-scheme-validator-<version>.vsix
+```
+
+Every build on GitHub Actions also keeps the `.vsix` as a build artifact.
 
 ## Quick start
 
@@ -227,6 +240,15 @@ converting the YAML) can validate with them:
 - When both extensions are active, both report problems. Set
   `"yaml.validate": false` in the workspace to keep Red Hat for completion only.
 
+## Anchors and aliases
+
+- An anchor (`&name`) that no alias (`*name`) uses is shown greyed out, with
+  "Anchor '&name' is never used" on hover (disable with `yamlScheme.unusedAnchors`).
+- Hovering over `&name` shows the anchored content and the lines that use it;
+  hovering over `*name` shows the content it stands for and where the anchor is.
+- *Go to Definition* on an alias jumps to its anchor, *Find All References* on
+  either lists the anchor and all its aliases.
+
 ## Commands and settings
 
 | Command | |
@@ -241,6 +263,7 @@ converting the YAML) can validate with them:
 | `yamlScheme.schemeInfix` | `schema` | Scheme files are named `name.<infix>.yml` |
 | `yamlScheme.unknownKeySeverity` | `warning` | Severity of keys forbidden by `additionalProperties: false` (`ignore` to disable) |
 | `yamlScheme.includeSummary` | `true` | Summary diagnostic on `extends` lines |
+| `yamlScheme.unusedAnchors` | `true` | Grey out anchors that no alias uses |
 | `yamlScheme.debounceMs` | `250` | Delay before revalidating |
 | `yamlScheme.exclude` | `**/{node_modules,.git}/**` | Ignored when searching for schemes |
 
@@ -262,6 +285,18 @@ npm run typecheck
 npm test           # tsc → out/, unit tests with node:test
 npm run package    # vsce package (runs a minified bundle first)
 ```
+
+Versions: every change gets the next development version and a git tag, e.g.
+`0.4.0` → `0.5.0-devel.1` → `0.5.0-devel.2`. `npm run bump -- patch|minor|major`
+computes it (a bigger change raises the upcoming release: `0.4.1-devel.3` + minor
+→ `0.5.0-devel.1`) and keeps the `## 0.5.0 (in development)` heading of
+`CHANGELOG.md` in sync. Development tags (`v0.5.0-devel.2`) are built by GitHub
+Actions (the `.vsix` is a build artifact) but not released.
+
+Releases are made by hand: `npm run bump -- release` (turns `0.5.0-devel.2` into
+`0.5.0` and the changelog heading into `## 0.5.0`), commit, then push the tag
+`v0.5.0`. The workflow in `.github/workflows/build.yml` builds the `.vsix` and
+publishes a GitHub release with it.
 
 All packages are dev dependencies: the published extension is a single bundled
 file without `node_modules`. Open the repository in VS Code and press

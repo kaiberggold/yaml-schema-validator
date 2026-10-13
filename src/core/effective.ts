@@ -155,6 +155,8 @@ export class Resolver {
         private readonly docs: DocProvider,
         private readonly keyword: string,
         private readonly report: ReportFn,
+        /** Report anchors (`&name`) that no alias uses. */
+        private readonly unusedAnchors = false,
     ) {}
 
     buildFile(file: string, stack: string[] = [], via: IncludeStep[] = []): ENode | undefined {
@@ -165,6 +167,13 @@ export class Resolver {
         }
         for (const e of doc.yaml.errors) {
             this.report(file, e.start, e.end, e.severity, 'syntax', e.message);
+        }
+        if (this.unusedAnchors) {
+            for (const a of doc.yaml.anchors) {
+                if (!a.uses.length && a.end > a.start) {
+                    this.report(file, a.start, a.end, 'hint', 'anchor', `Anchor '&${a.name}' is never used`);
+                }
+            }
         }
         const nextStack = [...stack, fileKey(file)];
         if (!doc.yaml.root) {
