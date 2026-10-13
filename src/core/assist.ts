@@ -4,7 +4,7 @@
  * that path, and building completion entries and hover text.
  */
 import * as path from 'path';
-import { SchemaNode, deref, describeType, effectiveTypes, expand } from './scheme';
+import { SchemaNode, deref, describeType, expand, likelyTypes } from './scheme';
 import { resolvePlain } from './yaml';
 
 /** Path segment that stands for "an item of a list". */
@@ -284,31 +284,46 @@ export function keyAt(lines: string[], line: number, character: number): { path:
     return { path: [...parents, ...dashes, tok.key!], key: tok.key!, start: tok.col, end: tok.keyEnd! };
 }
 
-/** Walks the scheme along a key path. Returns all candidate nodes (several with `anyOf`). */
+/** Walks the scheme along a key path. Returns all candidate nodes (several with `anyOf`, `allOf`, ...). */
 export function walk(root: SchemaNode, segs: string[]): SchemaNode[] {
     let cur: SchemaNode[] = [deref(root)];
     for (const seg of segs) {
-        const next: SchemaNode[] = [];
-        for (const n of cur.flatMap((c) => expand(c))) {
-            if (seg === ITEM) {
-                if (n.items) {
-                    next.push(deref(n.items));
-                }
-                continue;
-            }
-            const p = n.properties?.get(seg);
-            if (p) {
-                next.push(deref(p));
-            } else if (n.additionalProperties && typeof n.additionalProperties === 'object') {
-                next.push(deref(n.additionalProperties));
-            }
-        }
-        cur = next;
+        cur = cur.flatMap((c) => expand(c)).flatMap((n) => childSchemas(n, seg).map(deref));
         if (!cur.length) {
             break;
         }
     }
     return cur;
+}
+
+/** Schemas that apply to a child (`ITEM` = list item) of an already expanded node. */
+export function childSchemas(n: SchemaNode, seg: string): SchemaNode[] {
+    const isSchema = (x: SchemaNode | undefined): x is SchemaNode => !!x && deref(x).bool === undefined;
+    if (seg === ITEM) {
+        if (Array.isArray(n.items)) {
+            return [...n.items, ...(isSchema(n.additionalItems) ? [n.additionalItems] : [])];
+        }
+        return n.items ? [n.items] : [];
+    }
+    const out: SchemaNode[] = [];
+    const p = n.properties?.get(seg);
+    if (p) {
+        out.push(p);
+    }
+    for (const pp of n.patternProperties ?? []) {
+        if (pp.re.test(seg)) {
+            out.push(pp.node);
+        }
+    }
+    if (!out.length && isSchema(n.additionalProperties)) {
+        out.push(n.additionalProperties);
+    }
+    return out;
+}
+
+/** Whether `key` is listed in `required` of one of the parent nodes. */
+export function isRequired(parents: SchemaNode[], key: string): boolean {
+    return parents.some((p) => expand(p).some((x) => x.required?.includes(key)));
 }
 
 // ---------------------------------------------------------------- completion
@@ -360,7 +375,7 @@ function yamlKey(k: string): string {
 function unionTypes(nodes: SchemaNode[]): Set<string> {
     const s = new Set<string>();
     for (const n of nodes.flatMap((x) => expand(x))) {
-        effectiveTypes(n).forEach((t) => s.add(t));
+        likelyTypes(n).forEach((t) => s.add(t));
     }
     return s;
 }
@@ -368,21 +383,25 @@ function unionTypes(nodes: SchemaNode[]): Set<string> {
 export function keySnippet(key: string, prop: SchemaNode): { text: string; retrigger: boolean } {
     const d = deref(prop);
     const k = yamlKey(key);
-    if (d.snippet !== undefined) {
-        return { text: `${k}: ${d.snippet}`, retrigger: false };
+    const snippet = d.snippets?.[0];
+    if (snippet?.bodyText !== undefined) {
+        return { text: `${k}: ${snippet.bodyText}`, retrigger: false };
+    }
+    if (snippet && snippet.body !== undefined && (snippet.body === null || typeof snippet.body !== 'object')) {
+        return { text: `${k}: \${1:${escapeSnippet(yamlScalar(snippet.body))}}`, retrigger: false };
     }
     const alts = expand(prop);
     const types = unionTypes([prop]);
     const only = (t: string) => types.size === 1 && types.has(t);
-    if (only('map')) {
+    if (only('object')) {
         return { text: `${k}:\n\t$0`, retrigger: alts.some((a) => !!a.properties) };
     }
-    if (only('list')) {
-        const item = alts.find((a) => a.items)?.items;
-        const itemAlts = item ? expand(item) : [];
+    if (only('array')) {
+        const item = alts.map((a) => a.items).find((i) => i);
+        const itemAlts = item ? (Array.isArray(item) ? item : [item]).flatMap((i) => expand(i)) : [];
         return { text: `${k}:\n\t- $0`, retrigger: itemAlts.some((a) => !!a.properties || !!a.enum) };
     }
-    const enumValues = alts.flatMap((a) => a.enum ?? []);
+    const enumValues = alts.flatMap((a) => a.enum ?? (a.hasConst ? [a.const] : [])).filter((v) => v === null || typeof v !== 'object');
     if (enumValues.length) {
         const vals = [...new Set(enumValues.map(yamlScalar))];
         if (d.hasDefault) {
@@ -402,7 +421,7 @@ export function keySnippet(key: string, prop: SchemaNode): { text: string; retri
     if (d.hasDefault && (d.default === null || typeof d.default !== 'object')) {
         return { text: `${k}: \${1:${escapeSnippet(yamlScalar(d.default))}}`, retrigger: false };
     }
-    if (d.examples?.length) {
+    if (d.examples?.length && (d.examples[0] === null || typeof d.examples[0] !== 'object')) {
         return { text: `${k}: \${1:${escapeSnippet(yamlScalar(d.examples[0]))}}`, retrigger: false };
     }
     return { text: `${k}: $0`, retrigger: false };
@@ -415,12 +434,14 @@ export function keyCompletions(
     extendKeyword?: string,
 ): CompletionEntry[] {
     const props = new Map<string, SchemaNode>();
-    let isMap = false;
+    const required = new Set<string>();
+    let isObject = false;
     for (const n of nodes.flatMap((x) => expand(x))) {
-        const types = effectiveTypes(n);
-        if (types.includes('map') || types.includes('any')) {
-            isMap = true;
+        const types = likelyTypes(n);
+        if (!types.length || types.includes('object')) {
+            isObject = true;
         }
+        n.required?.forEach((r) => required.add(r));
         for (const [k, p] of n.properties ?? []) {
             if (!props.has(k)) {
                 props.set(k, p);
@@ -433,19 +454,24 @@ export function keyCompletions(
             continue;
         }
         const d = deref(p);
+        if (d.bool === false) {
+            continue;
+        }
+        const req = required.has(k);
+        const deprecated = !!(d.deprecated || d.deprecationMessage);
         const snip = keySnippet(k, p);
         out.push({
             label: k,
             kind: 'property',
             insertText: snip.text,
             isSnippet: true,
-            detail: describeType(p) + (d.required ? ' (required)' : '') + (d.deprecated ? ' (deprecated)' : ''),
-            documentation: hoverMarkdown(p, k, env),
-            sortText: `${d.deprecated ? 2 : d.required ? 0 : 1}_${k}`,
+            detail: describeType(p) + (req ? ' (required)' : '') + (deprecated ? ' (deprecated)' : ''),
+            documentation: hoverMarkdown(p, k, env, req),
+            sortText: `${deprecated ? 2 : req ? 0 : 1}_${k}`,
             retrigger: snip.retrigger,
         });
     }
-    if (extendKeyword && (isMap || props.size || !nodes.length) && !existing.has(extendKeyword)) {
+    if (extendKeyword && (isObject || props.size || !nodes.length) && !existing.has(extendKeyword) && !props.has(extendKeyword)) {
         out.push({
             label: extendKeyword,
             kind: 'keyword',
@@ -466,6 +492,9 @@ export function valueCompletions(nodes: SchemaNode[]): CompletionEntry[] {
     const out: CompletionEntry[] = [];
     const seen = new Set<string>();
     const add = (v: unknown, detail: string, preselect = false) => {
+        if (v !== null && typeof v === 'object') {
+            return;
+        }
         const text = yamlScalar(v);
         if (seen.has(text)) {
             return;
@@ -475,23 +504,25 @@ export function valueCompletions(nodes: SchemaNode[]): CompletionEntry[] {
     };
     for (const n of nodes) {
         const d = deref(n);
-        if (d.hasDefault && (d.default === null || typeof d.default !== 'object')) {
+        if (d.hasDefault) {
             add(d.default, 'default', true);
         }
         for (const a of expand(n)) {
+            if (a.hasConst) {
+                add(a.const, 'constant');
+            }
             for (const e of a.enum ?? []) {
                 add(e, 'allowed value');
             }
-            if (effectiveTypes(a).includes('boolean')) {
+            const types = a.types ?? [];
+            if (types.includes('boolean')) {
                 add(true, 'boolean');
                 add(false, 'boolean');
             }
             for (const e of a.examples ?? []) {
-                if (e === null || typeof e !== 'object') {
-                    add(e, 'example');
-                }
+                add(e, 'example');
             }
-            if (effectiveTypes(a).includes('null') && !a.enum) {
+            if (types.includes('null') && !a.enum) {
                 add(null, 'null');
             }
         }
@@ -501,36 +532,49 @@ export function valueCompletions(nodes: SchemaNode[]): CompletionEntry[] {
 
 // --------------------------------------------------------------------- hover
 
-export function hoverMarkdown(node: SchemaNode, key: string | undefined, env: HoverEnv): string {
+export function hoverMarkdown(node: SchemaNode, key: string | undefined, env: HoverEnv, required = false): string {
     const d = deref(node);
     const out: string[] = [];
     let head = key !== undefined ? `**${key}**` : d.title ? `**${d.title}**` : '';
     head += `${head ? ' · ' : ''}\`${describeType(node)}\``;
-    if (d.required) {
+    if (required) {
         head += ' · *required*';
     }
     out.push(head);
     if (d.title && key !== undefined && d.title !== key) {
         out.push(`*${d.title}*`);
     }
-    if (d.deprecated) {
-        out.push(`⚠️ **Deprecated**${typeof d.deprecated === 'string' ? `: ${d.deprecated}` : ''}`);
+    if (d.deprecated || d.deprecationMessage) {
+        out.push(`⚠️ **Deprecated**${d.deprecationMessage ? `: ${d.deprecationMessage}` : ''}`);
     }
-    if (d.description) {
-        out.push(d.description.trim());
+    const description = d.markdownDescription ?? d.description;
+    if (description) {
+        out.push(description.trim());
     }
     const facts: string[] = [];
+    const code = (v: unknown) => `\`${yamlScalar(v)}\``;
     if (d.hasDefault) {
-        facts.push(`Default: \`${yamlScalar(d.default)}\``);
+        facts.push(`Default: ${code(d.default)}`);
+    }
+    if (d.hasConst) {
+        facts.push(`Value: ${code(d.const)}`);
     }
     if (d.enum) {
-        facts.push(`Allowed: ${d.enum.map((e) => `\`${yamlScalar(e)}\``).join(', ')}`);
+        facts.push(`Allowed: ${d.enum.map(code).join(', ')}`);
     }
     if (d.pattern) {
         facts.push(`Pattern: \`/${d.pattern.source}/\``);
     }
-    if (d.min !== undefined || d.max !== undefined) {
-        facts.push(`Range: ${d.min ?? '−∞'} … ${d.max ?? '∞'}`);
+    if (d.format) {
+        facts.push(`Format: \`${d.format}\``);
+    }
+    const lower = d.exclusiveMinimum !== undefined ? `> ${d.exclusiveMinimum}` : d.minimum !== undefined ? `≥ ${d.minimum}` : '';
+    const upper = d.exclusiveMaximum !== undefined ? `< ${d.exclusiveMaximum}` : d.maximum !== undefined ? `≤ ${d.maximum}` : '';
+    if (lower || upper) {
+        facts.push(`Range: ${[lower, upper].filter((x) => x).join(', ')}`);
+    }
+    if (d.multipleOf !== undefined) {
+        facts.push(`Multiple of ${d.multipleOf}`);
     }
     if (d.minLength !== undefined || d.maxLength !== undefined) {
         facts.push(`Length: ${d.minLength ?? 0} … ${d.maxLength ?? '∞'}`);
@@ -542,14 +586,23 @@ export function hoverMarkdown(node: SchemaNode, key: string | undefined, env: Ho
         facts.push('Items must be unique');
     }
     if (d.examples?.length) {
-        facts.push(`Examples: ${d.examples.map((e) => `\`${yamlScalar(e)}\``).join(', ')}`);
+        facts.push(`Examples: ${d.examples.map(code).join(', ')}`);
     }
     if (d.properties?.size) {
-        const keys = [...d.properties.entries()].map(([k, p]) => (deref(p).required ? `\`${k}\`*` : `\`${k}\``));
+        const req = new Set(d.required ?? []);
+        const keys = [...d.properties.keys()].map((k) => (req.has(k) ? `\`${k}\`*` : `\`${k}\``));
         facts.push(`Keys: ${keys.slice(0, 25).join(', ')}${keys.length > 25 ? ', …' : ''}`);
     }
-    if (d.anyOf) {
-        facts.push(`One of: ${d.anyOf.map((a) => `\`${describeType(a)}\``).join(', ')}`);
+    if (d.patternProperties?.length) {
+        facts.push(`Keys matching: ${d.patternProperties.map((p) => `\`/${p.source}/\``).join(', ')}`);
+    }
+    if (d.additionalProperties && deref(d.additionalProperties).bool === false) {
+        facts.push('No other keys allowed');
+    }
+    for (const [name, alts] of [['One of', d.oneOf], ['Any of', d.anyOf]] as const) {
+        if (alts) {
+            facts.push(`${name}: ${alts.map((a) => `\`${describeType(a)}\``).join(', ')}`);
+        }
     }
     if (facts.length) {
         out.push(facts.map((f) => `- ${f}`).join('\n'));
@@ -585,18 +638,18 @@ export function hoverMarkdown(node: SchemaNode, key: string | undefined, env: Ho
     return out.join('\n\n');
 }
 
-/** Builds a starter scheme (as YAML text) from a value, used when creating a missing scheme. */
-export function inferScheme(value: unknown, indent = ''): string {
-    const lines: string[] = [];
+/** Builds a starter scheme (JSON Schema draft-07 as YAML text) from a value. */
+export function inferScheme(value: unknown): string {
+    const lines: string[] = ['$schema: "http://json-schema.org/draft-07/schema#"'];
     const emit = (v: unknown, ind: string) => {
         if (Array.isArray(v)) {
-            lines.push(`${ind}type: list`);
+            lines.push(`${ind}type: array`);
             if (v.length) {
                 lines.push(`${ind}items:`);
                 emit(v[0], ind + '  ');
             }
         } else if (v !== null && typeof v === 'object') {
-            lines.push(`${ind}type: map`);
+            lines.push(`${ind}type: object`);
             const entries = Object.entries(v as Record<string, unknown>);
             if (entries.length) {
                 lines.push(`${ind}properties:`);
@@ -606,11 +659,12 @@ export function inferScheme(value: unknown, indent = ''): string {
                     lines.push(`${ind}    description: ""`);
                 }
             }
-        } else {
-            const t = v === null ? 'any' : typeof v === 'number' ? (Number.isInteger(v) ? 'integer' : 'number') : typeof v === 'boolean' ? 'boolean' : 'string';
+            lines.push(`${ind}additionalProperties: false`);
+        } else if (v !== null) {
+            const t = typeof v === 'number' ? (Number.isInteger(v) ? 'integer' : 'number') : typeof v === 'boolean' ? 'boolean' : 'string';
             lines.push(`${ind}type: ${t}`);
         }
     };
-    emit(value, indent);
+    emit(value, '');
     return lines.join('\n') + '\n';
 }

@@ -97,7 +97,10 @@ export function findIncludeSites(
     exists: (f: string) => boolean,
 ): { start: number; end: number; raw: string; target: string; keyStart?: number }[] {
     const out: { start: number; end: number; raw: string; target: string; keyStart?: number }[] = [];
-    const scheme = isSchemeFile(file);
+    if (isSchemeFile(file)) {
+        // scheme files are JSON Schema documents: they reference each other with $ref
+        return out;
+    }
     const addPaths = (n: YNode, keyStart?: number) => {
         const items = n.kind === 'seq' ? n.items : [n];
         for (const it of items) {
@@ -112,7 +115,7 @@ export function findIncludeSites(
             }
         }
     };
-    const walk = (n: YNode | undefined, rootLevel: boolean) => {
+    const walk = (n: YNode | undefined) => {
         if (!n) {
             return;
         }
@@ -122,17 +125,17 @@ export function findIncludeSites(
         }
         if (n.kind === 'map') {
             for (const p of n.pairs) {
-                if (p.key.value === keyword && p.key.style === 'plain' && (!scheme || rootLevel)) {
+                if (p.key.value === keyword && p.key.style === 'plain') {
                     addPaths(p.value, p.key.start);
                 } else {
-                    walk(p.value, false);
+                    walk(p.value);
                 }
             }
         } else if (n.kind === 'seq') {
-            n.items.forEach((i) => walk(i, false));
+            n.items.forEach((i) => walk(i));
         }
     };
-    walk(doc.root, true);
+    walk(doc.root);
     return out;
 }
 
@@ -185,7 +188,8 @@ export class Resolver {
             }
             return this.conv(node.target, file, stack, via, false, depth + 1);
         }
-        if (node.tag === includeTag(this.keyword)) {
+        const scheme = isSchemeFile(file);
+        if (node.tag === includeTag(this.keyword) && !scheme) {
             return this.includeValue(node, file, stack, via);
         }
         if (node.kind === 'scalar') {
@@ -201,12 +205,11 @@ export class Resolver {
                 via,
             };
         }
-        const scheme = isSchemeFile(file);
         const locals: EEntry[] = [];
         const bases: EMap[] = [];
         for (const pair of node.pairs) {
             const key = pair.key.value === null ? '' : String(pair.key.value);
-            if (key === this.keyword && pair.key.style === 'plain' && (!scheme || rootLevel)) {
+            if (key === this.keyword && pair.key.style === 'plain' && !scheme) {
                 bases.push(...this.includeMaps(pair.value, pair.key, file, stack, via));
                 continue;
             }

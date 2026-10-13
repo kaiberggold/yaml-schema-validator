@@ -132,9 +132,26 @@ export class Engine {
 
     /** Compiles a scheme file on its own (used for navigation inside scheme files). */
     compileSchemeFile(file: string): CompiledScheme | undefined {
-        const r = new Resolver(this.docs, this.options.extendKeyword, () => undefined);
-        const root = r.buildFile(file);
-        return root ? compileScheme(root, file) : undefined;
+        return this.loadScheme(file, new Map());
+    }
+
+    /** Compiles a scheme file; other scheme files referenced with `$ref` are loaded through `cache`. */
+    loadScheme(file: string, cache: Map<string, CompiledScheme | null>): CompiledScheme | undefined {
+        const k = fileKey(file);
+        if (cache.has(k)) {
+            return cache.get(k) ?? undefined;
+        }
+        const root = new Resolver(this.docs, this.options.extendKeyword, () => undefined).buildFile(file);
+        if (!root) {
+            cache.set(k, null);
+            return undefined;
+        }
+        return compileScheme(
+            root,
+            file,
+            (f) => this.loadScheme(f, cache),
+            (s) => cache.set(k, s),
+        );
     }
 
     /** Validates the given root files. Results are keyed by file key. */
@@ -165,23 +182,13 @@ class Sink {
 class Run {
     private readonly results = new Map<string, RootResult>();
     private readonly inProgress = new Set<string>();
-    private readonly schemes = new Map<string, { scheme: CompiledScheme; deps: Set<string> }>();
+    private readonly schemes = new Map<string, CompiledScheme | null>();
 
     constructor(private readonly engine: Engine) {}
 
     private compileSchemeFile(file: string): { scheme: CompiledScheme; deps: Set<string> } | undefined {
-        const k = fileKey(file);
-        let c = this.schemes.get(k);
-        if (!c) {
-            const r = new Resolver(this.engine.docs, this.engine.options.extendKeyword, () => undefined);
-            const root = r.buildFile(file);
-            if (!root) {
-                return undefined;
-            }
-            c = { scheme: compileScheme(root, file), deps: r.files };
-            this.schemes.set(k, c);
-        }
-        return c;
+        const scheme = this.engine.loadScheme(file, this.schemes);
+        return scheme ? { scheme, deps: new Set([fileKey(file), ...scheme.deps]) } : undefined;
     }
 
     validateRoot(file: string): RootResult | undefined {
@@ -235,10 +242,11 @@ class Run {
         if (isSchemeFile(file)) {
             res.scheme = META_FILE;
             schema = this.engine.metaScheme().root;
-            const own = compileScheme(eroot, file);
-            for (const p of own.problems) {
+            const own = this.compileSchemeFile(file);
+            for (const p of own?.scheme.problems ?? []) {
                 sink.add(p.file, p.start, p.end, 'error', 'scheme', p.message);
             }
+            own?.deps.forEach((d) => res.deps.add(d));
         } else {
             const declared = this.engine.declaredScheme(file);
             let schemeFile = this.engine.findScheme(file);

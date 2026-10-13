@@ -21,6 +21,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.languages.registerDocumentLinkProvider(SELECTOR, new LinkProvider(manager)),
         vscode.commands.registerCommand('yamlScheme.revalidateAll', () => manager.revalidateAll()),
         vscode.commands.registerCommand('yamlScheme.openScheme', () => openScheme(manager)),
+        vscode.commands.registerCommand('yamlScheme.addModeline', () => addModeline(manager)),
         vscode.window.onDidChangeActiveTextEditor(() => updateStatus(manager, status)),
         manager.onDidUpdate(() => updateStatus(manager, status)),
     );
@@ -94,7 +95,54 @@ async function openScheme(manager: Manager): Promise<void> {
     }
     const root = new Resolver(engine.docs, manager.extendKeyword, () => undefined).buildFile(file);
     const body = inferScheme(root ? toJs(root) : {});
-    const text = `# Scheme for ${path.basename(file)}. Generated from its content - adjust types, add descriptions and \`required: true\`.\n${body}`;
+    const text = `# Scheme for ${path.basename(file)}. Generated from its content (JSON Schema draft-07) - adjust types, add descriptions and \`required: [keys]\` lists.\n${body}`;
     await vscode.workspace.fs.writeFile(vscode.Uri.file(target), Buffer.from(text, 'utf8'));
     await vscode.window.showTextDocument(vscode.Uri.file(target));
+}
+
+/**
+ * Writes `# yaml-language-server: $schema=<scheme>` as the first line of the
+ * current file, so that the Red Hat YAML extension (and other tools based on
+ * yaml-language-server) use the same scheme. An existing declaration is replaced.
+ */
+async function addModeline(manager: Manager): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    const doc = editor?.document;
+    if (!editor || !doc || doc.uri.scheme !== 'file' || !isYamlFile(doc.uri.fsPath) || isSchemeFile(doc.uri.fsPath)) {
+        void vscode.window.showInformationMessage('Open a YAML file that is validated by a scheme first.');
+        return;
+    }
+    const file = doc.uri.fsPath;
+    const scheme = manager.engine.findScheme(file);
+    if (!scheme || !manager.engine.exists(scheme)) {
+        void vscode.window.showInformationMessage(`${path.basename(file)} has no scheme yet.`);
+        return;
+    }
+    let rel = path.relative(path.dirname(file), scheme).split(path.sep).join('/');
+    if (/\s/.test(rel)) {
+        rel = JSON.stringify(rel);
+    }
+    const modeline = `# yaml-language-server: $schema=${rel}`;
+    const declared = manager.engine.declaredScheme(file);
+    await editor.edit((b) => {
+        if (declared) {
+            b.replace(doc.lineAt(0).range, modeline);
+        } else {
+            b.insert(new vscode.Position(0, 0), modeline + (doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n'));
+        }
+    });
+    // let Red Hat YAML accept the include tag
+    if (vscode.extensions.getExtension('redhat.vscode-yaml')) {
+        const tag = `!${manager.extendKeyword}`;
+        const config = vscode.workspace.getConfiguration('yaml');
+        const tags = config.get<string[]>('customTags', []);
+        const wanted = [`${tag} scalar`, `${tag} sequence`].filter((t) => !tags.includes(t));
+        if (wanted.length) {
+            try {
+                await config.update('customTags', [...tags, ...wanted], vscode.ConfigurationTarget.Workspace);
+            } catch {
+                // no workspace folder or setting not writable: the modeline still works
+            }
+        }
+    }
 }

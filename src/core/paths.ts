@@ -63,11 +63,12 @@ export interface SchemeDeclaration {
     end: number;
 }
 
-const DECLARATION_RE = /^(#\s*\$?(?:schema|scheme)\s*[:=]\s*)(["']?)([^"'\r\n]*?)\2\s*$/i;
+const DECLARATION_RE = /^(#\s*(?:yaml-language-server\s*:\s*\$schema\s*=|\$?(?:schema|scheme)\s*[:=])\s*)(["']?)([^"'\r\n]*?)\2\s*$/i;
 
 /**
- * Scheme declared in the first line of a YAML file:
- * `# schema: path/to/file.schema.yml` (also `# $schema: ...`, `# scheme: ...`, `#schema=...`).
+ * Scheme declared in the first line of a YAML file: the Red Hat YAML modeline
+ * `# yaml-language-server: $schema=path/to/file.schema.yml`, or
+ * `# schema: path` (also `# $schema: ...`, `# scheme: ...`, `#schema=...`).
  */
 export function schemeDeclaration(text: string): SchemeDeclaration | undefined {
     const bom = text.charCodeAt(0) === 0xfeff ? 1 : 0;

@@ -1,197 +1,331 @@
 import * as path from 'path';
 
-/** Virtual path of the built-in meta scheme that validates `*.schema.yml` files. */
+/** Virtual path of the built-in meta scheme that validates scheme files. */
 export const META_FILE = path.join(path.sep, '__yaml_scheme_builtin__', 'meta.schema.yml');
 
+/** Problem kinds that can be used as keys of `x-errorMessages` / `x-severity` maps. */
 const KINDS: [string, string][] = [
     ['type', 'The value has the wrong type.'],
-    ['required', 'A required key is missing (set on the required property).'],
-    ['unknownKey', 'A key is not declared in `properties` (set on the mapping).'],
+    ['required', 'A required key is missing.'],
+    ['additionalProperties', 'A key is not allowed (`additionalProperties: false`).'],
+    ['additionalItems', 'The array has more items than allowed.'],
     ['enum', 'The value is not one of the `enum` values.'],
+    ['const', 'The value is not the `const` value.'],
     ['pattern', 'The string does not match `pattern`.'],
-    ['min', 'The number is smaller than `min`.'],
-    ['max', 'The number is larger than `max`.'],
+    ['format', 'The string does not match `format`.'],
+    ['minimum', 'The number is smaller than `minimum`.'],
+    ['maximum', 'The number is larger than `maximum`.'],
+    ['exclusiveMinimum', 'The number is not greater than `exclusiveMinimum`.'],
+    ['exclusiveMaximum', 'The number is not less than `exclusiveMaximum`.'],
+    ['multipleOf', 'The number is not a multiple of `multipleOf`.'],
     ['minLength', 'The string is shorter than `minLength`.'],
     ['maxLength', 'The string is longer than `maxLength`.'],
-    ['minItems', 'The list has fewer than `minItems` items.'],
-    ['maxItems', 'The list has more than `maxItems` items.'],
-    ['uniqueItems', 'The list contains duplicates.'],
+    ['minItems', 'The array has fewer than `minItems` items.'],
+    ['maxItems', 'The array has more than `maxItems` items.'],
+    ['uniqueItems', 'The array contains duplicates.'],
+    ['contains', 'No array item matches `contains`.'],
+    ['minProperties', 'The object has fewer than `minProperties` keys.'],
+    ['maxProperties', 'The object has more than `maxProperties` keys.'],
+    ['propertyNames', 'A key does not match `propertyNames`.'],
+    ['dependencies', 'A key required by `dependencies` is missing.'],
     ['anyOf', 'The value matches none of the `anyOf` alternatives.'],
+    ['oneOf', 'The value does not match exactly one `oneOf` alternative.'],
+    ['not', 'The value matches the `not` schema.'],
+    ['false', 'The value is forbidden by a `false` schema.'],
     ['deprecated', 'The key is deprecated.'],
 ];
 
-const kindProps = (valueRef: string) =>
-    KINDS.map(([k, d]) => `      ${k}:\n        ref: ${valueRef}\n        description: ${JSON.stringify(d)}`).join('\n');
+const kindProps = (valueRef: string, indent: string) =>
+    KINDS.map(([k, d]) => `${indent}${k}:\n${indent}  $ref: "${valueRef}"\n${indent}  description: ${JSON.stringify(d)}`).join('\n');
+
+const schemaRef = '"#/definitions/schema"';
 
 export const META_TEXT = `
+$schema: "http://json-schema.org/draft-07/schema#"
 description: |
-  **Scheme file.** Describes the YAML file with the same base name in the same
-  folder (\`app.schema.yml\` validates \`app.yml\`), or the YAML files that declare it
-  in their first line (\`# schema: path\`). The root of the file is a
-  scheme node (usually \`type: map\` with \`properties\`).
-ref: node
+  **Scheme file** (a JSON Schema draft-07 document written in YAML). It validates
+  the YAML file with the same base name in the same folder (\`app.schema.yml\`
+  validates \`app.yml\`) and files that declare it in their first line
+  (\`# yaml-language-server: $schema=app.schema.yml\` or \`# schema: app.schema.yml\`).
+$ref: ${schemaRef}
 definitions:
   typeName:
-    description: |
-      One of \`string\`, \`number\`, \`integer\`, \`boolean\`, \`map\`, \`list\`, \`null\`, \`any\`
-      (aliases: \`str\`, \`float\`, \`int\`, \`bool\`, \`object\`, \`dict\`, \`array\`, \`seq\`).
-    enum: [string, number, integer, boolean, map, list, null, any, str, float, int, bool, object, dict, array, seq]
+    enum: [string, number, integer, boolean, object, array, "null"]
+    x-errorMessages:
+      enum: "'\${value}' is not a JSON Schema type.\${hint} Use one of: string, number, integer, boolean, object, array, null (object instead of map, array instead of list)"
+  nonNegativeInteger:
+    type: integer
+    minimum: 0
+  stringArray:
+    type: array
+    items:
+      type: string
+    uniqueItems: true
+  schemaArray:
+    type: array
+    minItems: 1
+    items:
+      $ref: ${schemaRef}
   severity:
     enum: [error, warning, info, hint]
   message:
     type: string
     description: |
       Message template. Placeholders: \`\${key}\`, \`\${path}\`, \`\${value}\`, \`\${actual}\`,
-      \`\${expected}\`, \`\${allowed}\`, \`\${file}\`, \`\${line}\`, \`\${scheme}\` and the
-      constraint values such as \`\${min}\`, \`\${max}\` or \`\${pattern}\`.
+      \`\${expected}\`, \`\${allowed}\`, \`\${hint}\`, \`\${file}\`, \`\${line}\`, \`\${scheme}\`,
+      \`\${ruleLine}\` and the keyword values such as \`\${minimum}\` or \`\${pattern}\`.
   seeEntry:
     anyOf:
       - type: string
         description: "A file path relative to the scheme, optionally with a line: \`docs/config.md:12\` or \`docs/config.md#L12\`."
-      - type: map
+      - type: object
+        required: [file]
+        additionalProperties: false
         properties:
           file:
             type: string
-            required: true
             description: File path relative to the scheme file.
           line:
             type: integer
-            min: 1
+            minimum: 1
             description: 1-based line number.
           label:
             type: string
             description: Text shown for the link.
-  nodeOrType:
-    anyOf:
-      - ref: node
-      - ref: typeName
-      - type: null
-  node:
-    type: map
-    description: A scheme node describing one YAML value.
+  schema:
+    type: [object, boolean]
+    description: |
+      A JSON Schema. \`true\` accepts every value, \`false\` none.
+    additionalProperties: false
+    patternProperties:
+      "^x-":
+        description: Extension keyword, ignored by the validator.
+    x-errorMessages:
+      additionalProperties: "Unknown keyword '\${key}'.\${hint}"
     properties:
-      type:
+      $schema:
+        type: string
+        description: "JSON Schema dialect, e.g. \`http://json-schema.org/draft-07/schema#\`."
+      $id:
+        type: string
+        description: Identifier of the schema (not used for validation).
+      $ref:
+        type: string
         description: |
-          Expected type of the value. A list allows several types, e.g. \`[string, integer]\`.
-          Without \`type\` the node accepts anything (or a map/list if \`properties\`/\`items\` are given).
-        anyOf:
-          - ref: typeName
-          - type: list
-            items:
-              ref: typeName
+          Reference to another schema: \`#/definitions/name\` in this file,
+          \`other.schema.yml\` or \`other.schema.yml#/definitions/name\` (relative to this file).
+          Other keywords next to \`$ref\` only add documentation and messages.
+      $comment:
+        type: string
+        description: A comment for schema authors.
       title:
         type: string
         description: Short name shown in hover and completion.
       description:
         type: string
-        description: Help text (Markdown) shown when hovering over the key and in completion.
-      required:
-        type: boolean
-        description: The key must be present in the enclosing mapping.
+        description: Help text shown when hovering over the key and in completion.
+      markdownDescription:
+        type: string
+        description: Help text in Markdown (preferred over \`description\` for hover).
       default:
         description: Default value. Shown in hover and inserted by completion.
-      enum:
-        type: list
-        description: List of allowed values.
-        items:
-          type: [string, number, boolean, null]
       examples:
-        type: list
+        type: array
         description: Example values, offered by completion.
-      pattern:
-        type: string
-        description: Regular expression (JavaScript syntax) that string values must match.
-      min:
+      readOnly:
+        type: boolean
+      writeOnly:
+        type: boolean
+      type:
+        description: |
+          Expected type: \`string\`, \`number\`, \`integer\`, \`boolean\`, \`object\`, \`array\` or \`null\`,
+          or a list of them, e.g. \`[string, integer]\`. Without \`type\` every type is accepted.
+        anyOf:
+          - $ref: "#/definitions/typeName"
+          - type: array
+            minItems: 1
+            uniqueItems: true
+            items:
+              $ref: "#/definitions/typeName"
+      enum:
+        type: array
+        description: List of allowed values.
+      const:
+        description: The only allowed value.
+      multipleOf:
+        type: number
+        exclusiveMinimum: 0
+        description: The number must be a multiple of this value.
+      minimum:
         type: number
         description: Smallest allowed number.
-      max:
+      maximum:
         type: number
         description: Largest allowed number.
+      exclusiveMinimum:
+        type: number
+        description: The number must be greater than this value.
+      exclusiveMaximum:
+        type: number
+        description: The number must be less than this value.
       minLength:
-        type: integer
-        min: 0
+        $ref: "#/definitions/nonNegativeInteger"
         description: Minimal string length.
       maxLength:
-        type: integer
-        min: 0
+        $ref: "#/definitions/nonNegativeInteger"
         description: Maximal string length.
+      pattern:
+        type: string
+        format: regex
+        description: Regular expression (ECMAScript syntax) that strings must match.
+      format:
+        type: string
+        description: |
+          Format of a string. Checked: \`date-time\`, \`date\`, \`time\`, \`email\`, \`hostname\`,
+          \`ipv4\`, \`ipv6\`, \`uri\`, \`uri-reference\`, \`json-pointer\`, \`regex\`.
+        examples: [date-time, date, time, email, hostname, ipv4, ipv6, uri, uri-reference, json-pointer, regex]
+      items:
+        description: Schema for every array item, or a list of schemas for the items by position.
+        anyOf:
+          - $ref: ${schemaRef}
+          - $ref: "#/definitions/schemaArray"
+      additionalItems:
+        $ref: ${schemaRef}
+        description: Schema for items after those listed in \`items\` (when \`items\` is a list).
       minItems:
-        type: integer
-        min: 0
-        description: Minimal number of list items.
+        $ref: "#/definitions/nonNegativeInteger"
+        description: Minimal number of array items.
       maxItems:
-        type: integer
-        min: 0
-        description: Maximal number of list items.
+        $ref: "#/definitions/nonNegativeInteger"
+        description: Maximal number of array items.
       uniqueItems:
         type: boolean
-        description: List items must be unique.
+        description: Array items must be unique.
+      contains:
+        $ref: ${schemaRef}
+        description: At least one array item must match this schema.
       properties:
-        type: map
-        description: |
-          Keys of a mapping and their scheme nodes. A type name can be used as a
-          shorthand, e.g. \`port: integer\`.
+        type: object
+        description: Keys of an object and their schemas.
         additionalProperties:
-          ref: nodeOrType
+          $ref: ${schemaRef}
+      patternProperties:
+        type: object
+        description: Schemas for keys matching a regular expression.
+        propertyNames:
+          format: regex
+        additionalProperties:
+          $ref: ${schemaRef}
       additionalProperties:
+        $ref: ${schemaRef}
         description: |
-          \`true\` allows keys that are not listed in \`properties\`, \`false\` reports them.
-          A scheme node validates the values of all unlisted keys.
-          Default: \`false\` when \`properties\` is given, otherwise \`true\`.
-        anyOf:
-          - type: boolean
-          - ref: node
-          - ref: typeName
-      items:
-        ref: nodeOrType
-        description: Scheme node for every item of a list.
-      ref:
-        type: string
-        description: Name of an entry in the root \`definitions\` to use for this node.
+          Schema for keys not matched by \`properties\` / \`patternProperties\`.
+          \`false\` reports such keys as unknown. JSON Schema default: \`true\`.
+      required:
+        $ref: "#/definitions/stringArray"
+        description: Keys that must be present, e.g. \`[name, port]\`.
+        x-errorMessages:
+          type: "In JSON Schema 'required' is a list of keys on the enclosing object, e.g. 'required: [name]'"
+      minProperties:
+        $ref: "#/definitions/nonNegativeInteger"
+        description: Minimal number of keys.
+      maxProperties:
+        $ref: "#/definitions/nonNegativeInteger"
+        description: Maximal number of keys.
+      propertyNames:
+        $ref: ${schemaRef}
+        description: |
+          Schema every key must match, e.g. \`{pattern: "^[a-z]+$"}\`.
+      dependencies:
+        type: object
+        description: "When a key is present: other keys that must be present (list) or a schema the object must match."
+        additionalProperties:
+          anyOf:
+            - $ref: ${schemaRef}
+            - $ref: "#/definitions/stringArray"
+      definitions:
+        type: object
+        description: |
+          Reusable schemas, referenced with \`$ref: "#/definitions/<name>"\`.
+        additionalProperties:
+          $ref: ${schemaRef}
+      allOf:
+        $ref: "#/definitions/schemaArray"
+        description: The value must match all schemas.
       anyOf:
-        type: list
-        minItems: 1
-        description: The value must match at least one of the given scheme nodes.
-        items:
-          ref: nodeOrType
+        $ref: "#/definitions/schemaArray"
+        description: The value must match at least one schema.
+      oneOf:
+        $ref: "#/definitions/schemaArray"
+        description: The value must match exactly one schema.
+      not:
+        $ref: ${schemaRef}
+        description: The value must not match this schema.
+      if:
+        $ref: ${schemaRef}
+        description: If the value matches this schema, \`then\` applies, otherwise \`else\`.
+      then:
+        $ref: ${schemaRef}
+      else:
+        $ref: ${schemaRef}
+      contentMediaType:
+        type: string
+      contentEncoding:
+        type: string
       deprecated:
-        type: [boolean, string]
-        description: Marks the key as deprecated. A string is used as the reason.
-      severity:
-        description: Overrides the severity of problems found by this node, either for all problems or per problem kind.
-        anyOf:
-          - ref: severity
-          - type: map
-            properties:
-${kindProps('severity').replace(/^/gm, '        ')}
-      message:
-        ref: message
+        type: boolean
+        description: Marks the key as deprecated (reported as a warning).
+      deprecationMessage:
+        type: string
+        description: Marks the key as deprecated, with this text as the reason.
+      errorMessage:
+        $ref: "#/definitions/message"
         description: |
-          Custom message for every problem reported by this node. Placeholders:
-          \`\${key}\`, \`\${path}\`, \`\${value}\`, \`\${actual}\`, \`\${expected}\`, \`\${allowed}\`,
-          \`\${file}\`, \`\${line}\`, \`\${scheme}\` and constraint values like \`\${min}\`.
-      messages:
-        type: map
-        description: Custom message templates per problem kind (override \`message\`).
+          Custom message for every problem of this schema (also used by VS Code / Red Hat YAML).
+          Use \`x-errorMessages\` for messages per keyword.
+        x-errorMessages:
+          type: "'errorMessage' must be a single text; use 'x-errorMessages' for messages per keyword"
+      patternErrorMessage:
+        $ref: "#/definitions/message"
+        description: Custom message when \`pattern\` does not match (also used by VS Code / Red Hat YAML).
+      x-errorMessages:
+        type: object
+        description: |
+          Custom message templates per keyword (\`type\`, \`required\`, \`additionalProperties\`,
+          \`pattern\`, \`minimum\`, ...). Overrides \`errorMessage\`.
+        additionalProperties: false
         properties:
-${kindProps('message').replace(/^/gm, '    ')}
-      see:
+${kindProps('#/definitions/message', '          ')}
+      x-severity:
+        description: Severity of problems found by this schema, for all problems or per keyword.
+        anyOf:
+          - $ref: "#/definitions/severity"
+          - type: object
+            additionalProperties: false
+            properties:
+${kindProps('#/definitions/severity', '              ')}
+      x-see:
         description: |
-          Related files (e.g. documentation) attached to every problem of this node
+          Related files (e.g. documentation) attached to every problem of this schema
           as clickable locations.
         anyOf:
-          - ref: seeEntry
-          - type: list
+          - $ref: "#/definitions/seeEntry"
+          - type: array
             items:
-              ref: seeEntry
-      snippet:
-        type: string
-        description: |
-          VS Code snippet inserted after \`key: \` by completion, e.g. \`\${1:localhost}\`.
-      definitions:
-        type: map
-        description: |
-          Reusable scheme nodes (root only). Reference them with \`ref: <name>\`.
-        additionalProperties:
-          ref: node
+              $ref: "#/definitions/seeEntry"
+      defaultSnippets:
+        type: array
+        description: Snippets offered by completion (Red Hat YAML convention).
+        items:
+          type: object
+          properties:
+            label:
+              type: string
+            description:
+              type: string
+            body:
+              description: Value inserted after the key.
+            bodyText:
+              type: string
+              description: Snippet text inserted after the key.
 `;

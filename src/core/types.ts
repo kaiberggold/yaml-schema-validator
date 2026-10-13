@@ -13,23 +13,42 @@ export interface RelatedInfo {
     message: string;
 }
 
+/**
+ * Problem kinds. Apart from the first three they are named after the JSON
+ * Schema keyword that failed, so `errorMessage` / `x-severity` maps can use
+ * keyword names (`additionalProperties` = unknown key, `false` = a `false` schema).
+ */
 export type ProblemKind =
     | 'syntax'
     | 'include'
     | 'scheme'
     | 'type'
     | 'required'
-    | 'unknownKey'
+    | 'additionalProperties'
+    | 'additionalItems'
     | 'enum'
+    | 'const'
     | 'pattern'
-    | 'min'
-    | 'max'
+    | 'format'
+    | 'minimum'
+    | 'maximum'
+    | 'exclusiveMinimum'
+    | 'exclusiveMaximum'
+    | 'multipleOf'
     | 'minLength'
     | 'maxLength'
     | 'minItems'
     | 'maxItems'
     | 'uniqueItems'
+    | 'contains'
+    | 'minProperties'
+    | 'maxProperties'
+    | 'propertyNames'
+    | 'dependencies'
     | 'anyOf'
+    | 'oneOf'
+    | 'not'
+    | 'false'
     | 'deprecated';
 
 export interface Problem {

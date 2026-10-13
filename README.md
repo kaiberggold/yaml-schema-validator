@@ -1,22 +1,25 @@
 # YAML Scheme Validator
 
-A VS Code extension (TypeScript) that validates YAML
-configuration files against a *scheme* file (next to them or declared in their
-first line), follows `extends`
-includes recursively, and assists while editing.
+A VS Code extension (TypeScript) that validates YAML configuration files
+against a *scheme*, a **JSON Schema (draft-07) written in YAML**, next to them
+or declared in their first line. It follows `extends` includes recursively and
+assists while editing. Because schemes are standard JSON Schema, the
+[Red Hat YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml)
+and other JSON Schema tools can use the same files as a backup.
 
 | Feature | |
 |---|---|
-| Scheme lookup | `name.yml` is validated by `name.schema.yml` in the same folder (`.yaml` works too, the `schema` part is configurable), or by the scheme named in its first line: `# schema: path/to/x.schema.yml` |
+| Scheme lookup | `name.yml` is validated by `name.schema.yml` in the same folder (`.yaml` works too, the `schema` part is configurable), or by the scheme named in its first line: `# yaml-language-server: $schema=path/to/x.schema.yml` |
+| Schemes | JSON Schema draft-07 in YAML, including `$ref` to other files, plus optional extensions for messages, severities and links |
 | Includes | `extends: other.yml`, `extends: [a.yml, b.yml]` or `key: !extends other.yml`, fully recursive with cycle detection |
 | Diagnostics | Error / warning / info squiggles with customizable messages, clickable links to the scheme rule, related files and the include chain |
 | Live refresh | Revalidates while typing and whenever a YAML file, an included file or a scheme changes on disk (similar to CMake re-configuring) |
-| Completion | Keys (with snippets for enums, booleans, defaults, maps and lists), values, `extends` file paths |
+| Completion | Keys (with snippets for enums, booleans, defaults, objects and arrays), values, `extends` file paths |
 | Hover | Description, type, default, allowed values, constraints and a link to the definition in the scheme |
-| Navigation | Ctrl+Click on `extends` paths, *Go to Definition* on keys (jumps into the scheme) and on `ref:` in schemes |
+| Navigation | Ctrl+Click on `extends` paths, *Go to Definition* on keys (jumps into the scheme) and on `$ref` in schemes |
 
-Scheme files themselves are validated against a built-in meta scheme, so you get
-completion, hover help and errors while writing schemes as well.
+Scheme files themselves are checked against a built-in draft-07 meta-scheme, so
+you get completion, hover help and errors while writing schemes as well.
 
 ## Quick start
 
@@ -26,48 +29,57 @@ config/
 ├── app.schema.yml
 ├── base.yml                # no own scheme: validated through app.schema.yml
 └── database/
-    ├── db.yml              # validated by db.schema.yml AND as part of app.yml
+    ├── db.yml              # validated by db.schema.yml only
     └── db.schema.yml
 ```
 
 `app.yml`
 
 ```yaml
+# yaml-language-server: $schema=app.schema.yml
 extends: base.yml               # merge base.yml into this mapping
 name: demo
 server:
   port: 8080
-database: !extends database/db.yml   # value = content of db.yml
+database:
+  extends: database/db.yml      # merge db.yml here
 ```
 
 `app.schema.yml`
 
 ```yaml
+$schema: "http://json-schema.org/draft-07/schema#"
 description: Application configuration.
-type: map
+type: object
+required: [name, server]
+additionalProperties: false
 properties:
+  extends:                       # declare the include key for other JSON Schema tools
+    type: [string, array]
   name:
     type: string
-    required: true
     pattern: "^[a-z][a-z0-9-]*$"
     description: Technical name of the application.
-    messages:
-      pattern: "'${value}' must be kebab-case (rule in ${scheme}:${ruleLine})"
+    patternErrorMessage: "The name must be lowercase kebab-case"
   server:
-    ref: server
+    $ref: "#/definitions/server"
   database:
-    type: map
-    additionalProperties: true
+    type: object
 definitions:
   server:
+    type: object
     properties:
       port:
         type: integer
-        min: 1
-        max: 65535
+        minimum: 1
+        maximum: 65535
         default: 8080
-        see: docs/server.md:12          # clickable in the problem's details
+        x-see: docs/server.md:12      # clickable in the problem's details
 ```
+
+The first line of `app.yml` is optional for this extension (the sibling
+`app.schema.yml` is found anyway). It lets the Red Hat YAML extension use the same
+scheme, see [Red Hat YAML as backup](#red-hat-yaml-as-backup).
 
 A complete example lives in [`example/`](example/). Press <kbd>F5</kbd> in this
 repository to open it in an Extension Development Host.
@@ -78,13 +90,14 @@ Instead of a sibling `name.schema.yml`, a YAML file can name its scheme in its
 **first line**:
 
 ```yaml
-# schema: ../schemas/app.schema.yml
+# yaml-language-server: $schema=../schemas/app.schema.yml
 extends: ../app.yml
 mode: production
 ```
 
-- The path is relative to the file; `# $schema: …`, `# scheme: …` and
-  `#schema=…` are accepted as well, and the path may be quoted.
+- This is the modeline of the Red Hat YAML extension, so both extensions use it.
+  `# schema: …`, `# $schema: …`, `# scheme: …` and `#schema=…` are accepted as
+  well. The path is relative to the file and may be quoted.
 - A declaration takes precedence over a sibling scheme file.
 - Included files may declare their own scheme the same way.
 - Missing declared files are reported on the first line. The declared scheme
@@ -92,6 +105,7 @@ mode: production
   but not validated itself (a warning says so).
 - The path is a link (Ctrl+Click), has a hover, and completion offers scheme
   files while typing it.
+- **YAML Scheme: Add Red Hat YAML Modeline** writes the line for the current file.
 
 ## Includes (`extends`)
 
@@ -105,8 +119,7 @@ mode: production
 - Includes are resolved recursively; cycles (`a → b → a`), missing files and
   non-mapping files used for merging are reported at the include.
 - The YAML merge key `<<: *anchor` and aliases are supported as well.
-- In scheme files `extends` is only recognised at the root, so schemes can share
-  `definitions` (the key `extends` stays usable as a property name).
+- Scheme files have no includes; they reference each other with `$ref`.
 - The keyword can be changed with `yamlScheme.extendKeyword`; the tag is always
   `!` followed by the keyword.
 
@@ -128,50 +141,91 @@ including file's scheme where it is mounted (the status bar shows `via app.yml`)
 
 ## Scheme reference
 
-A scheme node is a mapping with the keywords below. As a shorthand a property
-can be just a type name: `port: integer`.
+Schemes are [JSON Schema draft-07](https://json-schema.org/specification-links#draft-7)
+documents written in YAML. All validation keywords are supported:
 
-| Keyword | Meaning |
+| Keywords | |
 |---|---|
-| `type` | `string`, `number`, `integer`, `boolean`, `map`, `list`, `null`, `any` or a list of them (aliases: `str`, `float`, `int`, `bool`, `object`, `dict`, `array`, `seq`) |
-| `description`, `title` | Help text (Markdown) for hover and completion |
-| `required` | The key must be present in the enclosing mapping |
-| `default`, `examples` | Shown in hover, inserted / offered by completion |
-| `enum` | Allowed values |
-| `pattern` | Regular expression (JavaScript syntax) for strings |
-| `min`, `max` | Numeric range |
-| `minLength`, `maxLength` | String length |
-| `minItems`, `maxItems`, `uniqueItems` | List constraints |
-| `properties` | Keys of a mapping → scheme nodes |
-| `additionalProperties` | `false` (default when `properties` is given) reports unknown keys, `true` allows them, a node validates them |
-| `items` | Scheme node for list items |
-| `ref` | Use an entry of the root `definitions` |
-| `anyOf` | The value must match one of several nodes |
-| `deprecated` | `true` or a reason; reported as a warning with strike-through |
-| `severity` | `error` / `warning` / `info` / `hint`, or a map per problem kind (`{unknownKey: error}`) |
-| `message`, `messages` | Custom message for all problems of the node, or per problem kind |
-| `see` | Files attached to every problem as clickable locations: `docs/a.md:12`, `docs/a.md#L12` or `{file, line, label}` |
-| `snippet` | Snippet inserted after `key: ` by completion, e.g. `"${1:localhost}"` |
-| `definitions` | (root) Reusable nodes for `ref` |
+| `type` | `string`, `number`, `integer`, `boolean`, `object`, `array`, `null`, or a list of them |
+| `enum`, `const` | Allowed values |
+| `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` | Numbers |
+| `minLength`, `maxLength`, `pattern`, `format` | Strings. Checked formats: `date-time`, `date`, `time`, `email`, `hostname`, `ipv4`, `ipv6`, `uri`, `uri-reference`, `json-pointer`, `regex` |
+| `items` (schema or list), `additionalItems`, `minItems`, `maxItems`, `uniqueItems`, `contains` | Arrays |
+| `properties`, `patternProperties`, `additionalProperties`, `required`, `propertyNames`, `minProperties`, `maxProperties`, `dependencies` | Objects |
+| `allOf`, `anyOf`, `oneOf`, `not`, `if` / `then` / `else` | Combinations |
+| `$ref`, `definitions` | `#/definitions/x`, any JSON pointer, `other.schema.yml` or `other.schema.yml#/definitions/x` |
+| `true` / `false` | Boolean schemas (`legacyKey: false` forbids a key) |
+| `title`, `description`, `default`, `examples`, `$comment`, `$schema`, `$id` | Documentation, used by hover and completion |
 
-### Problem kinds and message placeholders
+As in JSON Schema, keys that are not listed are allowed unless
+`additionalProperties: false` is set. For keys whose names are free but whose
+content follows one structure, use `additionalProperties` (or
+`patternProperties`) with a schema.
 
-Kinds: `type`, `required`, `unknownKey`, `enum`, `pattern`, `min`, `max`,
-`minLength`, `maxLength`, `minItems`, `maxItems`, `uniqueItems`, `anyOf`,
-`deprecated`. A `required` message belongs on the required property, an
-`unknownKey` message on the mapping.
+### Extensions
 
-Placeholders in `message` / `messages`:
-`${key}`, `${path}`, `${value}`, `${actual}`, `${expected}`, `${allowed}`,
-`${hint}`, `${file}`, `${line}` (location of the problem), `${scheme}`,
-`${ruleLine}` (location of the rule), `${title}`, `${description}`,
-`${default}`, and the constraints `${min}`, `${max}`, `${minLength}`,
-`${maxLength}`, `${minItems}`, `${maxItems}`, `${pattern}`, plus `${count}`
-(list size), `${length}` (string length) and `${reason}` (deprecation).
+These keywords are ignored by standard JSON Schema validators. The first group
+is also understood by VS Code and Red Hat YAML:
+
+| Keyword | |
+|---|---|
+| `errorMessage` | Message (text) for every problem of this schema |
+| `patternErrorMessage` | Message when `pattern` does not match |
+| `markdownDescription` | Help text in Markdown (preferred over `description` in hover) |
+| `deprecationMessage` | Marks the key as deprecated with this reason (`deprecated: true` works too); reported as a warning with strike-through |
+| `defaultSnippets` | Completion snippets: `[{label, body}]` or `[{label, bodyText}]` |
+| `x-errorMessages` | Message templates per keyword, e.g. `{minimum: "...", required: "..."}`; override `errorMessage` |
+| `x-severity` | `error` / `warning` / `info` / `hint`, or a map per keyword (`{additionalProperties: error}`) |
+| `x-see` | Files attached to every problem as clickable locations: `docs/a.md:12`, `docs/a.md#L12` or `{file, line, label}` (or a list) |
+
+Any other `x-…` keyword is accepted and ignored.
+
+### Message placeholders
+
+Problem kinds (the keys of `x-errorMessages` / `x-severity`) are the keyword
+names: `type`, `required`, `additionalProperties` (unknown key), `enum`, `const`,
+`pattern`, `format`, `minimum`, `maximum`, `exclusiveMinimum`,
+`exclusiveMaximum`, `multipleOf`, `minLength`, `maxLength`, `minItems`,
+`maxItems`, `uniqueItems`, `contains`, `additionalItems`, `minProperties`,
+`maxProperties`, `propertyNames`, `dependencies`, `anyOf`, `oneOf`, `not`,
+`false`, `deprecated`. A message for `required` can be written on the object or
+on the required property itself.
+
+Placeholders: `${key}`, `${path}`, `${value}`, `${actual}`, `${expected}`,
+`${allowed}`, `${hint}`, `${parent}` (the object a missing / unknown key belongs
+to), `${file}`, `${line}` (location of the problem), `${scheme}`, `${ruleLine}`
+(location of the rule), `${title}`, `${description}`, `${default}`, `${const}`,
+`${format}`, the keyword values (`${minimum}`, `${maxLength}`, `${pattern}`, ...),
+plus `${count}` (number of items / keys), `${length}` (string length),
+`${reason}` (deprecation), `${dependency}` and `${missing}` (dependencies).
+
+Red Hat YAML shows `errorMessage` / `patternErrorMessage` verbatim, without filling in
+placeholders. Put messages with placeholders into `x-errorMessages`; Red Hat
+ignores those and shows its own text.
 
 Each diagnostic's code (e.g. `pattern`) links to the rule in the scheme, and the
-problem details list the rule, `see` files and the include chain as clickable
+problem details list the rule, `x-see` files and the include chain as clickable
 locations.
+
+## Red Hat YAML as backup
+
+Scheme files are valid draft-07 schemas, so the Red Hat YAML extension (and
+other tools built on `yaml-language-server`, or any JSON Schema validator after
+converting the YAML) can validate with them:
+
+- Associate the files with the modeline in the first line
+  (`# yaml-language-server: $schema=app.schema.yml`, written by
+  **YAML Scheme: Add Red Hat YAML Modeline**) or with Red Hat's `yaml.schemas`
+  setting. Red Hat does not know the `name.schema.yml` naming convention.
+- Red Hat does not resolve `extends`: it validates every file on its own.
+  - Declare `extends` in the scheme (`extends: {type: [string, array]}`) when
+    `additionalProperties: false` is used.
+  - Keys that only come from included files are reported as missing there.
+  - Prefer `key:` + `extends: file.yml` over `key: !extends file.yml`, because
+    Red Hat sees the tag form as a string. The modeline command adds
+    `!extends` to `yaml.customTags`, so the tag itself is accepted.
+- When both extensions are active, both report problems. Set
+  `"yaml.validate": false` in the workspace to keep Red Hat for completion only.
 
 ## Commands and settings
 
@@ -179,12 +233,13 @@ locations.
 |---|---|
 | `YAML Scheme: Revalidate All Files` | Rescan the workspace and validate everything |
 | `YAML Scheme: Open Scheme for Current File` | Open the scheme (or the validated file from a scheme). Offers to generate a starter scheme from the file's content when none exists. Also available by clicking the status bar item |
+| `YAML Scheme: Add Red Hat YAML Modeline` | Write `# yaml-language-server: $schema=…` as the first line of the current file |
 
 | Setting | Default | |
 |---|---|---|
 | `yamlScheme.extendKeyword` | `extends` | Include keyword; the tag form uses the same word (`!extends`) |
 | `yamlScheme.schemeInfix` | `schema` | Scheme files are named `name.<infix>.yml` |
-| `yamlScheme.unknownKeySeverity` | `warning` | Severity of undeclared keys (`ignore` to disable) |
+| `yamlScheme.unknownKeySeverity` | `warning` | Severity of keys forbidden by `additionalProperties: false` (`ignore` to disable) |
 | `yamlScheme.includeSummary` | `true` | Summary diagnostic on `extends` lines |
 | `yamlScheme.debounceMs` | `250` | Delay before revalidating |
 | `yamlScheme.exclude` | `**/{node_modules,.git}/**` | Ignored when searching for schemes |
@@ -195,7 +250,8 @@ Parsing is done by the [`yaml`](https://eemeli.org/yaml/) package (YAML 1.2,
 bundled into the extension, so nothing has to be installed). Anchors, aliases,
 tags and the merge key `<<` are supported. Only the first document of a file is
 validated. Values are typed with the YAML 1.2 core schema (`yes` is a string,
-`1.2` is a number, so quote versions).
+`1.2` is a number, so quote versions). As in JSON Schema, `1.0` counts as an
+integer.
 
 ## Development
 

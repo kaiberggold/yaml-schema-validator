@@ -1,4 +1,5 @@
-# Validated by app.schema.yml. Hover keys for help, Ctrl+Space for suggestions.
+# yaml-language-server: $schema=app.schema.yml
+# Validated by app.schema.yml (the first line also lets the Red Hat YAML extension use it).
 extends: base.yml
 
 name: Demo_App
@@ -8,7 +9,8 @@ server:
   host: localhost
   port: 70000
   tls: yes
-database: !extends database/db.yml
+database:
+  extends: database/db.yml
 features:
   - name: search
     enabled: true

@@ -12,11 +12,12 @@ import {
     lineInfo,
     valueCompletions,
     walk,
+    isRequired,
 } from './core/assist';
 import { findIncludeSites, includeTag } from './core/effective';
 import { META_FILE } from './core/meta';
 import { fileKey, isSchemeFile, isYamlFile } from './core/paths';
-import { SchemaNode, deref, effectiveTypes, expand } from './core/scheme';
+import { SchemaNode, deref, expand, likelyTypes } from './core/scheme';
 import { Manager } from './manager';
 
 const KIND: Record<CompletionEntry['kind'], vscode.CompletionItemKind> = {
@@ -64,7 +65,7 @@ function declaration(manager: Manager, doc: vscode.TextDocument) {
     return { ...d, range: new vscode.Range(doc.positionAt(d.start), doc.positionAt(d.end)), exists: manager.engine.exists(d.path) };
 }
 
-const DECLARATION_PREFIX = /^\uFEFF?#\s*\$?(?:schema|scheme)\s*[:=]\s*/i;
+const DECLARATION_PREFIX = /^\uFEFF?#\s*(?:yaml-language-server\s*:\s*\$schema\s*=|\$?(?:schema|scheme)\s*[:=])\s*/i;
 
 function includeSites(manager: Manager, doc: vscode.TextDocument) {
     const parsed = manager.engine.getDoc(doc.uri.fsPath);
@@ -79,7 +80,7 @@ function schemaAtKey(
     manager: Manager,
     doc: vscode.TextDocument,
     pos: vscode.Position,
-): { node: SchemaNode; key: string; range: vscode.Range } | undefined {
+): { node: SchemaNode; key: string; range: vscode.Range; required?: boolean } | undefined {
     const file = doc.uri.fsPath;
     const text = doc.getText();
     const offset = doc.offsetAt(pos);
@@ -98,7 +99,12 @@ function schemaAtKey(
             }
         }
         if (best) {
-            return { node: best.schema, key: best.key ?? '', range: new vscode.Range(doc.positionAt(best.start), doc.positionAt(best.end)) };
+            return {
+                node: best.schema,
+                key: best.key ?? '',
+                range: new vscode.Range(doc.positionAt(best.start), doc.positionAt(best.end)),
+                required: best.required,
+            };
         }
     }
     const info = manager.schemaFor(file);
@@ -114,7 +120,12 @@ function schemaAtKey(
     if (!nodes.length) {
         return undefined;
     }
-    return { node: nodes[0], key: k.key, range: new vscode.Range(pos.line, k.start, pos.line, k.end) };
+    return {
+        node: nodes[0],
+        key: k.key,
+        range: new vscode.Range(pos.line, k.start, pos.line, k.end),
+        required: isRequired(walk(info.root, k.path.slice(0, -1)), k.key),
+    };
 }
 
 export class CompletionProvider implements vscode.CompletionItemProvider {
@@ -174,7 +185,7 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
             entries = keyCompletions(nodes, ctx.siblings, env, !scheme || ctx.path.length === 0 ? keyword : undefined);
             // list of scalars: offer values for the item
             if (ctx.dashes > 0 && ctx.path[ctx.path.length - 1] === ITEM) {
-                const scalarItems = nodes.filter((n) => expand(n).some((a) => !effectiveTypes(a).includes('map')));
+                const scalarItems = nodes.filter((n) => expand(n).some((a) => !likelyTypes(a).includes('object')));
                 entries.push(...valueCompletions(scalarItems));
             }
         }
@@ -264,7 +275,7 @@ export class HoverProvider implements vscode.HoverProvider {
         }
         const hit = schemaAtKey(this.manager, doc, pos);
         if (hit) {
-            return new vscode.Hover(markdown(hoverMarkdown(hit.node, hit.key || undefined, hoverEnv(this.manager))), hit.range);
+            return new vscode.Hover(markdown(hoverMarkdown(hit.node, hit.key || undefined, hoverEnv(this.manager), hit.required)), hit.range);
         }
         return undefined;
     }
@@ -302,16 +313,22 @@ export class DefinitionProvider implements vscode.DefinitionProvider {
                 return new vscode.Location(vscode.Uri.file(site.target), new vscode.Position(0, 0));
             }
         }
-        // `ref: name` inside a scheme file
+        // `$ref: "#/definitions/x"` or `$ref: other.schema.yml#/...` inside a scheme file
         if (isSchemeFile(file)) {
             const line = doc.lineAt(pos.line).text;
-            const info = lineInfo(line);
-            const key = info.tokens.find((t) => t.kind === 'key');
-            if (key?.key === 'ref' && pos.character > key.keyEnd!) {
-                const name = line.slice(line.indexOf(':', key.keyEnd!) + 1).replace(/#.*$/, '').trim().replace(/^["']|["']$/g, '');
-                const def = this.manager.engine.compileSchemeFile(file)?.definitions.get(name);
-                if (def) {
-                    return this.location(def);
+            const key = lineInfo(line).tokens.find((t) => t.kind === 'key');
+            if (key?.key === '$ref' && pos.character > key.keyEnd!) {
+                const ref = line
+                    .slice(line.indexOf(':', key.keyEnd!) + 1)
+                    .replace(/\s+#.*$/, '')
+                    .trim()
+                    .replace(/^["']|["']$/g, '');
+                const hash = ref.indexOf('#');
+                const target = hash > 0 || (hash < 0 && ref) ? path.resolve(path.dirname(file), ref.slice(0, hash < 0 ? undefined : hash)) : file;
+                const pointer = hash >= 0 ? ref.slice(hash + 1) : '';
+                const node = this.manager.engine.compileSchemeFile(target)?.nodeAt(pointer);
+                if (node) {
+                    return this.location(node);
                 }
             }
         }
