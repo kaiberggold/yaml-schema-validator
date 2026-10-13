@@ -2,6 +2,7 @@
 
 ## 0.4.1 (in development)
 
+- Completion: a value chosen right after `key:` gets the separating space (`key: value`).
 - Docs: development versions (`0.5.0-devel.1`, ...) with git tags; releases are tagged by hand.
 
 ## 0.4.0

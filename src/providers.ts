@@ -156,12 +156,14 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
         }
         const env = hoverEnv(this.manager);
         const range = new vscode.Range(pos.line, ctx.startCol, pos.line, pos.character);
+        // a value typed right after `key:` needs a separating space
+        const lead = ctx.kind === 'value' && lines[pos.line][ctx.startCol - 1] === ':' ? ' ' : '';
         let entries: CompletionEntry[] = [];
 
         if (ctx.kind === 'value') {
             const isInclude = ctx.extendTag || (ctx.key === keyword && (!scheme || ctx.path.length === 0));
             if (isInclude) {
-                return this.fileCompletions(file, ctx.prefix, pos);
+                return this.fileCompletions(file, ctx.prefix, pos, false, lead);
             }
             if (ctx.prefix === '' || !ctx.prefix.startsWith('!')) {
                 entries = info ? valueCompletions(walk(info.root, [...ctx.path, ctx.key!])) : [];
@@ -191,12 +193,15 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
                 entries.push(...valueCompletions(scalarItems));
             }
         }
-        return entries.map((e) => this.toItem(e, range));
+        return entries.map((e) => this.toItem(e, range, lead));
     }
 
-    private toItem(e: CompletionEntry, range: vscode.Range): vscode.CompletionItem {
+    private toItem(e: CompletionEntry, range: vscode.Range, lead = ''): vscode.CompletionItem {
         const item = new vscode.CompletionItem(e.label, KIND[e.kind]);
-        item.insertText = e.isSnippet ? new vscode.SnippetString(e.insertText) : e.insertText;
+        item.insertText = e.isSnippet ? new vscode.SnippetString(lead + e.insertText) : lead + e.insertText;
+        if (lead) {
+            item.filterText = e.label;
+        }
         item.detail = e.detail;
         if (e.documentation) {
             item.documentation = markdown(e.documentation);
@@ -211,7 +216,7 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
     }
 
     /** Paths of YAML files (or scheme files for a `# schema:` declaration) relative to `file`. */
-    private fileCompletions(file: string, typed: string, pos: vscode.Position, schemes = false): vscode.CompletionItem[] {
+    private fileCompletions(file: string, typed: string, pos: vscode.Position, schemes = false, lead = ''): vscode.CompletionItem[] {
         const quote = typed.match(/^["']/)?.[0] ?? '';
         const p = typed.slice(quote.length);
         const slash = p.lastIndexOf('/');
@@ -235,12 +240,16 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
             if (e.isDirectory()) {
                 const it = new vscode.CompletionItem(`${e.name}/`, vscode.CompletionItemKind.Folder);
                 it.range = range;
+                it.insertText = `${lead}${e.name}/`;
+                it.filterText = `${e.name}/`;
                 it.sortText = `1_${e.name}`;
                 it.command = { command: 'editor.action.triggerSuggest', title: 'Suggest' };
                 items.push(it);
             } else if (isYamlFile(e.name) && isSchemeFile(e.name) === schemes && fileKey(full) !== self) {
                 const it = new vscode.CompletionItem(e.name, vscode.CompletionItemKind.File);
                 it.range = range;
+                it.insertText = lead + e.name;
+                it.filterText = e.name;
                 it.sortText = `0_${e.name}`;
                 if (!schemes) {
                     const scheme = this.manager.engine.findScheme(full);
