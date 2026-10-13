@@ -2,7 +2,7 @@ import * as path from 'path';
 import { DocProvider, ParsedFile, Resolver } from './effective';
 import { LineIndex } from './lineIndex';
 import { META_FILE, META_TEXT } from './meta';
-import { fileKey, isSchemeFile, schemeCandidates } from './paths';
+import { DEFAULT_SCHEME_INFIX, fileKey, isSchemeFile, resolveIncludePath, schemeCandidates, schemeDeclaration, schemeInfix, setSchemeInfix } from './paths';
 import { CompiledScheme, SchemaNode, compileScheme } from './scheme';
 import { FileHost, Problem, ProblemKind, RelatedInfo, Severity, problemKey, severityRank } from './types';
 import { Annotation, Validator } from './validator';
@@ -10,12 +10,15 @@ import { parseYaml } from './yaml';
 
 export interface EngineOptions {
     extendKeyword: string;
+    /** Middle part of scheme file names: `name.<schemeInfix>.yml`. */
+    schemeInfix: string;
     unknownKeySeverity: Severity | 'ignore';
     includeSummary: boolean;
 }
 
 export const DEFAULT_OPTIONS: EngineOptions = {
-    extendKeyword: 'extend',
+    extendKeyword: 'extends',
+    schemeInfix: DEFAULT_SCHEME_INFIX,
     unknownKeySeverity: 'warning',
     includeSummary: true,
 };
@@ -41,19 +44,30 @@ export interface RootResult {
 }
 
 /**
- * Validates "root" files: every YAML file that has a sibling scheme
- * (`name.yml` + `name.scheme.yml`) and every scheme file itself.
+ * Validates "root" files: every YAML file that has a scheme (a sibling
+ * `name.schema.yml` or one declared in its first line) and every scheme file.
  */
 export class Engine {
     private readonly cache = new Map<string, ParsedFile>();
     private meta?: CompiledScheme;
     readonly docs: DocProvider;
+    private opts!: EngineOptions;
 
     constructor(
         private readonly host: FileHost,
-        public options: EngineOptions = DEFAULT_OPTIONS,
+        options: EngineOptions = DEFAULT_OPTIONS,
     ) {
         this.docs = { get: (f) => this.getDoc(f), exists: (f) => this.exists(f) };
+        this.options = options;
+    }
+
+    get options(): EngineOptions {
+        return this.opts;
+    }
+
+    /** Scheme file naming is global (see paths.ts), so setting options also updates it. */
+    set options(o: EngineOptions) {
+        this.opts = { ...o, schemeInfix: setSchemeInfix(o.schemeInfix) };
     }
 
     exists(file: string): boolean {
@@ -81,9 +95,28 @@ export class Engine {
         this.cache.delete(fileKey(file));
     }
 
+    /** Scheme declared in the first line (`# schema: path`), resolved relative to the file. */
+    declaredScheme(file: string): { path: string; start: number; end: number; raw: string } | undefined {
+        const text = this.host.read(file);
+        const decl = text === undefined ? undefined : schemeDeclaration(text);
+        if (!decl) {
+            return undefined;
+        }
+        return { ...decl, path: resolveIncludePath(decl.raw, file, (f) => this.host.exists(f)) };
+    }
+
+    /**
+     * Scheme that validates a file: the meta scheme for scheme files, otherwise a
+     * scheme declared in the first line (even if missing, so that it is reported)
+     * or the sibling `name.schema.yml`.
+     */
     findScheme(file: string): string | undefined {
         if (isSchemeFile(file)) {
             return META_FILE;
+        }
+        const declared = this.declaredScheme(file);
+        if (declared) {
+            return declared.path;
         }
         return schemeCandidates(file).find((c) => this.host.exists(c));
     }
@@ -187,6 +220,10 @@ class Run {
         for (const f of resolver.visited) {
             if (!isSchemeFile(f)) {
                 schemeCandidates(f).forEach((c) => res.deps.add(fileKey(c)));
+                const declared = this.engine.declaredScheme(f);
+                if (declared) {
+                    res.deps.add(fileKey(declared.path));
+                }
             }
         }
         if (!eroot) {
@@ -203,14 +240,35 @@ class Run {
                 sink.add(p.file, p.start, p.end, 'error', 'scheme', p.message);
             }
         } else {
-            const schemeFile = this.engine.findScheme(file);
+            const declared = this.engine.declaredScheme(file);
+            let schemeFile = this.engine.findScheme(file);
+            if (declared) {
+                if (fileKey(declared.path) === fileKey(file)) {
+                    sink.add(file, declared.start, declared.end, 'error', 'scheme', 'A file cannot be its own scheme');
+                    schemeFile = undefined;
+                } else if (!this.engine.exists(declared.path)) {
+                    sink.add(file, declared.start, declared.end, 'error', 'scheme', `Cannot find scheme file '${declared.raw}' (resolved to ${declared.path})`);
+                    schemeFile = undefined;
+                } else if (!isSchemeFile(declared.path)) {
+                    sink.add(
+                        file,
+                        declared.start,
+                        declared.end,
+                        'warning',
+                        'scheme',
+                        `Name scheme files '*.${schemeInfix()}.yml' so that they are checked against the scheme definition themselves`,
+                    );
+                }
+            }
             if (schemeFile) {
                 const compiled = this.compileSchemeFile(schemeFile);
                 if (compiled) {
                     res.scheme = schemeFile;
                     schema = compiled.scheme.root;
                     compiled.deps.forEach((d) => res.deps.add(d));
-                    this.reportBrokenScheme(file, schemeFile, sink);
+                    if (isSchemeFile(schemeFile)) {
+                        this.reportBrokenScheme(file, schemeFile, sink);
+                    }
                 }
             }
         }

@@ -1,4 +1,4 @@
-# No base.scheme.yml: this file is validated through app.scheme.yml
-# because app.yml includes it with `extend`.
+# No base.schema.yml: this file is validated through app.schema.yml
+# because app.yml includes it with `extends`.
 logLevel: verbose
 timeout: 0

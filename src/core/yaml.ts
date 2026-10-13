@@ -94,7 +94,7 @@ export function parseYaml(text: string): YDocument {
         errors.push(err);
     }
     for (const w of doc.warnings) {
-        // custom tags such as `!extend` are valid YAML; they are interpreted by the extension
+        // custom tags such as `!extends` are valid YAML; they are interpreted by the extension
         if (w.code !== 'TAG_RESOLVE_FAILED') {
             errors.push(toError(w, 'warning'));
         }

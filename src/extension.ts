@@ -47,8 +47,9 @@ function updateStatus(manager: Manager, status: vscode.StatusBarItem): void {
         status.text = `$(symbol-ruler) via ${path.basename(info.includedBy)}`;
         status.tooltip = `Included by ${info.includedBy}; validated with ${info.scheme}`;
     } else if (info) {
+        const declared = manager.engine.declaredScheme(file);
         status.text = `$(symbol-ruler) ${path.basename(info.scheme)}`;
-        status.tooltip = `Validated with ${info.scheme}`;
+        status.tooltip = `Validated with ${info.scheme}${declared ? ' (declared in the first line)' : ''}`;
     } else if (manager.isManaged(file)) {
         status.text = '$(symbol-ruler) included';
         status.tooltip = 'Included by a validated file';
@@ -77,12 +78,13 @@ async function openScheme(manager: Manager): Promise<void> {
         }
         return;
     }
-    const existing = schemeCandidates(file).find((c) => engine.exists(c));
-    if (existing) {
+    const existing = engine.findScheme(file);
+    if (existing && engine.exists(existing)) {
         await vscode.window.showTextDocument(vscode.Uri.file(existing));
         return;
     }
-    const target = schemeCandidates(file)[0];
+    // a declared but missing scheme is created at the declared path
+    const target = existing ?? schemeCandidates(file)[0];
     const choice = await vscode.window.showInformationMessage(
         `${path.basename(file)} has no scheme. Create ${path.basename(target)} from its current content?`,
         'Create',

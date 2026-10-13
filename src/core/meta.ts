@@ -1,7 +1,7 @@
 import * as path from 'path';
 
-/** Virtual path of the built-in meta scheme that validates `*.scheme.yml` files. */
-export const META_FILE = path.join(path.sep, '__yaml_scheme_builtin__', 'meta.scheme.yml');
+/** Virtual path of the built-in meta scheme that validates `*.schema.yml` files. */
+export const META_FILE = path.join(path.sep, '__yaml_scheme_builtin__', 'meta.schema.yml');
 
 const KINDS: [string, string][] = [
     ['type', 'The value has the wrong type.'],
@@ -26,7 +26,8 @@ const kindProps = (valueRef: string) =>
 export const META_TEXT = `
 description: |
   **Scheme file.** Describes the YAML file with the same base name in the same
-  folder: \`app.scheme.yml\` validates \`app.yml\`. The root of the file is a
+  folder (\`app.schema.yml\` validates \`app.yml\`), or the YAML files that declare it
+  in their first line (\`# schema: path\`). The root of the file is a
   scheme node (usually \`type: map\` with \`properties\`).
 ref: node
 definitions:

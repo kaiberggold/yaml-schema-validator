@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { YNode, parseYaml } from '../core/yaml';
+import { schemeDeclaration } from '../core/paths';
 
 function js(n: YNode | undefined): unknown {
     if (!n) {
@@ -82,11 +83,11 @@ test('multi-line plain scalars', () => {
 });
 
 test('anchors, aliases and tags', () => {
-    const d = parseYaml('base: &b {x: 1}\ncopy: *b\ninc: !extend other.yml\n');
+    const d = parseYaml('base: &b {x: 1}\ncopy: *b\ninc: !extends other.yml\n');
     assert.deepEqual(d.errors, []);
     assert.deepEqual(js(d.root), { base: { x: 1 }, copy: { x: 1 }, inc: 'other.yml' });
     const inc = d.root!.kind === 'map' ? d.root!.pairs[2].value : undefined;
-    assert.equal(inc?.tag, '!extend');
+    assert.equal(inc?.tag, '!extends');
 });
 
 test('offsets of keys and values', () => {
@@ -122,4 +123,14 @@ test('documents', () => {
     assert.deepEqual(parse('a: 1\n---\nb: 2\n').errors, ['Only the first YAML document is validated']);
     assert.deepEqual(parse('a: 1\n---\nb: 2\n').value, { a: 1 });
     assert.equal(parseYaml('# only a comment\n').root, undefined);
+});
+
+test('scheme declaration in the first line', () => {
+    const text = '# schema: ../s/app.schema.yml\na: 1\n';
+    const d = schemeDeclaration(text)!;
+    assert.equal(d.raw, '../s/app.schema.yml');
+    assert.equal(text.slice(d.start, d.end), '../s/app.schema.yml');
+    assert.equal(schemeDeclaration('#$schema="x y.yml"\n')?.raw, 'x y.yml');
+    assert.equal(schemeDeclaration('# just a comment\n'), undefined);
+    assert.equal(schemeDeclaration('a: 1\n# schema: x.yml\n'), undefined);
 });

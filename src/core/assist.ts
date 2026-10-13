@@ -170,11 +170,11 @@ export interface CursorContext {
     siblings: Set<string>;
     /** Number of `- ` markers on the cursor line before the key. */
     dashes: number;
-    /** The value is prefixed with the `!extend` tag. */
+    /** The value is prefixed with the include tag (`!extends`). */
     extendTag?: boolean;
 }
 
-export function getCursorContext(lines: string[], line: number, character: number): CursorContext {
+export function getCursorContext(lines: string[], line: number, character: number, tag = '!extends'): CursorContext {
     const before = (lines[line] ?? '').slice(0, character);
     let i = 0;
     while (before[i] === ' ') {
@@ -204,9 +204,9 @@ export function getCursorContext(lines: string[], line: number, character: numbe
             vs++;
         }
         let extendTag = false;
-        if (before.startsWith('!extend', vs) && isWs(before[vs + 7])) {
+        if (before.startsWith(tag, vs) && isWs(before[vs + tag.length])) {
             extendTag = true;
-            vs += 7;
+            vs += tag.length;
             while (isWs(before[vs])) {
                 vs++;
             }
@@ -454,7 +454,7 @@ export function keyCompletions(
             detail: 'Include other YAML file(s)',
             documentation:
                 `Merges the mapping of another YAML file into this mapping (recursively). ` +
-                `Local keys override included ones.\n\n\`\`\`yaml\n${extendKeyword}: base.yml\n${extendKeyword}: [a.yml, b.yml]\nkey: !extend part.yml\n\`\`\``,
+                `Local keys override included ones.\n\n\`\`\`yaml\n${extendKeyword}: base.yml\n${extendKeyword}: [a.yml, b.yml]\nkey: !${extendKeyword} part.yml\n\`\`\``,
             sortText: `3_${extendKeyword}`,
             retrigger: true,
         });

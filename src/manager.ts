@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { Annotation } from './core/validator';
 import { DEFAULT_OPTIONS, Engine, EngineOptions, RootResult, dedupe } from './core/engine';
 import { META_FILE } from './core/meta';
-import { configCandidates, fileKey, isSchemeFile, isYamlFile } from './core/paths';
+import { DEFAULT_SCHEME_INFIX, configCandidates, fileKey, isSchemeFile, isYamlFile, schemeDeclaration, schemeInfix } from './core/paths';
 import { SchemaNode } from './core/scheme';
 import { FileHost, Problem, severityRank } from './core/types';
 
@@ -27,6 +27,7 @@ export function readOptions(): EngineOptions & { debounceMs: number; exclude: st
     const c = vscode.workspace.getConfiguration('yamlScheme');
     return {
         extendKeyword: c.get('extendKeyword', DEFAULT_OPTIONS.extendKeyword) || DEFAULT_OPTIONS.extendKeyword,
+        schemeInfix: c.get('schemeInfix', DEFAULT_SCHEME_INFIX) || DEFAULT_SCHEME_INFIX,
         unknownKeySeverity: c.get('unknownKeySeverity', DEFAULT_OPTIONS.unknownKeySeverity),
         includeSummary: c.get('includeSummary', DEFAULT_OPTIONS.includeSummary),
         debounceMs: c.get('debounceMs', 250),
@@ -107,8 +108,13 @@ export class Manager implements vscode.Disposable {
             }),
             vscode.workspace.onDidChangeConfiguration((e) => {
                 if (e.affectsConfiguration('yamlScheme')) {
+                    const before = schemeInfix();
                     this.options = readOptions();
                     this.engine.options = this.options;
+                    if (schemeInfix() !== before) {
+                        // different file naming: start over with discovery
+                        [...this.roots.keys()].forEach((k) => this.removeRoot(k));
+                    }
                     void this.revalidateAll();
                 }
             }),
@@ -145,15 +151,22 @@ export class Manager implements vscode.Disposable {
         }
     }
 
-    /** Scans the workspace for scheme files and validates everything. */
+    /** Scans the workspace for scheme files and scheme declarations and validates everything. */
     async revalidateAll(): Promise<void> {
-        const schemes = await vscode.workspace.findFiles('**/*.scheme.{yml,yaml}', this.options.exclude || undefined);
+        const exclude = this.options.exclude || undefined;
+        const schemes = await vscode.workspace.findFiles(`**/*.${schemeInfix()}.{yml,yaml}`, exclude);
         for (const u of schemes) {
             this.addRoot(u.fsPath);
             for (const c of configCandidates(u.fsPath)) {
                 if (this.engine.exists(c)) {
                     this.addRoot(c);
                 }
+            }
+        }
+        // files that declare their scheme in the first line
+        for (const u of await vscode.workspace.findFiles('**/*.{yml,yaml}', exclude, 20000)) {
+            if (!isSchemeFile(u.fsPath) && !this.roots.has(fileKey(u.fsPath)) && schemeDeclaration(readHead(u.fsPath))) {
+                this.addRoot(u.fsPath);
             }
         }
         vscode.workspace.textDocuments.forEach((d) => this.considerDocument(d, false));
@@ -193,6 +206,13 @@ export class Manager implements vscode.Disposable {
                     });
             } else if (this.engine.findScheme(file)) {
                 this.addRoot(file);
+            }
+        } else if (type === 'change' && !isSchemeFile(file)) {
+            // a scheme declaration in the first line may have been added or removed
+            if (this.engine.findScheme(file)) {
+                this.addRoot(file);
+            } else if (this.roots.has(k)) {
+                this.removeRoot(k);
             }
         } else if (type === 'delete') {
             this.engine.forget(file);
@@ -385,6 +405,23 @@ export class Manager implements vscode.Disposable {
 
     get extendKeyword(): string {
         return this.options.extendKeyword;
+    }
+}
+
+/** First bytes of a file (enough for a scheme declaration in the first line). */
+function readHead(file: string): string {
+    let fd: number | undefined;
+    try {
+        fd = fs.openSync(file, 'r');
+        const buf = Buffer.alloc(1024);
+        const n = fs.readSync(fd, buf, 0, buf.length, 0);
+        return buf.toString('utf8', 0, n);
+    } catch {
+        return '';
+    } finally {
+        if (fd !== undefined) {
+            fs.closeSync(fd);
+        }
     }
 }
 

@@ -13,9 +13,9 @@ import {
     valueCompletions,
     walk,
 } from './core/assist';
-import { EXTEND_TAG, findIncludeSites } from './core/effective';
+import { findIncludeSites, includeTag } from './core/effective';
 import { META_FILE } from './core/meta';
-import { fileKey, isSchemeFile, isYamlFile, schemeCandidates } from './core/paths';
+import { fileKey, isSchemeFile, isYamlFile } from './core/paths';
 import { SchemaNode, deref, effectiveTypes, expand } from './core/scheme';
 import { Manager } from './manager';
 
@@ -51,6 +51,20 @@ function markdown(text: string): vscode.MarkdownString {
     md.supportHtml = false;
     return md;
 }
+
+/** The `# schema: path` declaration in the first line, if any. */
+function declaration(manager: Manager, doc: vscode.TextDocument) {
+    if (isSchemeFile(doc.uri.fsPath)) {
+        return undefined;
+    }
+    const d = manager.engine.declaredScheme(doc.uri.fsPath);
+    if (!d) {
+        return undefined;
+    }
+    return { ...d, range: new vscode.Range(doc.positionAt(d.start), doc.positionAt(d.end)), exists: manager.engine.exists(d.path) };
+}
+
+const DECLARATION_PREFIX = /^\uFEFF?#\s*\$?(?:schema|scheme)\s*[:=]\s*/i;
 
 function includeSites(manager: Manager, doc: vscode.TextDocument) {
     const parsed = manager.engine.getDoc(doc.uri.fsPath);
@@ -113,12 +127,20 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
             return undefined;
         }
         const lines = doc.getText().split(/\r?\n/);
-        const ctx = getCursorContext(lines, pos.line, pos.character);
+        const scheme = isSchemeFile(file);
+        if (pos.line === 0 && !scheme) {
+            const m = DECLARATION_PREFIX.exec(lines[0].slice(0, pos.character));
+            if (m) {
+                const typed = lines[0].slice(m[0].length, pos.character);
+                return this.fileCompletions(file, typed, pos, true);
+            }
+        }
+        const keyword = this.manager.extendKeyword;
+        const tag = includeTag(keyword);
+        const ctx = getCursorContext(lines, pos.line, pos.character, tag);
         if (ctx.kind === 'none') {
             return undefined;
         }
-        const scheme = isSchemeFile(file);
-        const keyword = this.manager.extendKeyword;
         const env = hoverEnv(this.manager);
         const range = new vscode.Range(pos.line, ctx.startCol, pos.line, pos.character);
         let entries: CompletionEntry[] = [];
@@ -131,11 +153,11 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
             if (ctx.prefix === '' || !ctx.prefix.startsWith('!')) {
                 entries = info ? valueCompletions(walk(info.root, [...ctx.path, ctx.key!])) : [];
             }
-            if (!scheme && (!ctx.prefix || EXTEND_TAG.startsWith(ctx.prefix))) {
+            if (!scheme && (!ctx.prefix || tag.startsWith(ctx.prefix))) {
                 entries.push({
-                    label: EXTEND_TAG,
+                    label: tag,
                     kind: 'keyword',
-                    insertText: `${EXTEND_TAG} `,
+                    insertText: `${tag} `,
                     isSnippet: false,
                     detail: 'Replace this value with the content of another YAML file',
                     sortText: '9',
@@ -145,7 +167,7 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
         } else {
             const n = ctx.path.length;
             if (ctx.dashes > 0 && ctx.path[n - 1] === ITEM && ctx.path[n - 2] === keyword && (!scheme || n === 2)) {
-                // item of `extend:` list
+                // item of an `extends:` list
                 return this.fileCompletions(file, ctx.prefix, pos);
             }
             const nodes = info ? walk(info.root, ctx.path) : [];
@@ -175,7 +197,8 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
         return item;
     }
 
-    private fileCompletions(file: string, typed: string, pos: vscode.Position): vscode.CompletionItem[] {
+    /** Paths of YAML files (or scheme files for a `# schema:` declaration) relative to `file`. */
+    private fileCompletions(file: string, typed: string, pos: vscode.Position, schemes = false): vscode.CompletionItem[] {
         const quote = typed.match(/^["']/)?.[0] ?? '';
         const p = typed.slice(quote.length);
         const slash = p.lastIndexOf('/');
@@ -202,12 +225,14 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
                 it.sortText = `1_${e.name}`;
                 it.command = { command: 'editor.action.triggerSuggest', title: 'Suggest' };
                 items.push(it);
-            } else if (isYamlFile(e.name) && !isSchemeFile(e.name) && fileKey(full) !== self) {
+            } else if (isYamlFile(e.name) && isSchemeFile(e.name) === schemes && fileKey(full) !== self) {
                 const it = new vscode.CompletionItem(e.name, vscode.CompletionItemKind.File);
                 it.range = range;
                 it.sortText = `0_${e.name}`;
-                const scheme = schemeCandidates(full).find((c) => this.manager.engine.exists(c));
-                it.detail = scheme ? `validated by ${path.basename(scheme)}` : 'no own scheme';
+                if (!schemes) {
+                    const scheme = this.manager.engine.findScheme(full);
+                    it.detail = scheme && this.manager.engine.exists(scheme) ? `validated by ${path.basename(scheme)}` : 'no own scheme';
+                }
                 items.push(it);
             }
         }
@@ -224,6 +249,13 @@ export class HoverProvider implements vscode.HoverProvider {
             return undefined;
         }
         const offset = doc.offsetAt(pos);
+        const decl = declaration(this.manager, doc);
+        if (decl && pos.line === 0) {
+            const text = decl.exists
+                ? `**Scheme** for this file: [${path.basename(decl.path)}](${vscode.Uri.file(decl.path).toString()})\n\n\`${decl.path}\``
+                : `**Scheme** \`${decl.raw}\`\n\n❌ File not found: \`${decl.path}\``;
+            return new vscode.Hover(markdown(text), decl.range);
+        }
         for (const site of includeSites(this.manager, doc)) {
             const start = site.keyStart ?? site.start;
             if (offset >= start && offset <= site.end) {
@@ -243,7 +275,8 @@ export class HoverProvider implements vscode.HoverProvider {
             return `**${this.manager.extendKeyword}** \`${raw}\`\n\n❌ File not found: \`${target}\``;
         }
         const link = vscode.Uri.file(target).toString();
-        const scheme = schemeCandidates(target).find((c) => e.exists(c));
+        const found = e.findScheme(target);
+        const scheme = found && e.exists(found) ? found : undefined;
         const lines = [`**${this.manager.extendKeyword}** → [${path.basename(target)}](${link})`, `\`${target}\``];
         lines.push(
             scheme
@@ -260,6 +293,10 @@ export class DefinitionProvider implements vscode.DefinitionProvider {
     provideDefinition(doc: vscode.TextDocument, pos: vscode.Position): vscode.Definition | undefined {
         const file = doc.uri.fsPath;
         const offset = doc.offsetAt(pos);
+        const decl = declaration(this.manager, doc);
+        if (decl?.exists && decl.range.contains(pos)) {
+            return new vscode.Location(vscode.Uri.file(decl.path), new vscode.Position(0, 0));
+        }
         for (const site of includeSites(this.manager, doc)) {
             if (offset >= site.start && offset <= site.end && this.manager.engine.exists(site.target)) {
                 return new vscode.Location(vscode.Uri.file(site.target), new vscode.Position(0, 0));
@@ -305,6 +342,12 @@ export class LinkProvider implements vscode.DocumentLinkProvider {
             return [];
         }
         const links: vscode.DocumentLink[] = [];
+        const decl = declaration(this.manager, doc);
+        if (decl?.exists) {
+            const link = new vscode.DocumentLink(decl.range, vscode.Uri.file(decl.path));
+            link.tooltip = `Open scheme ${path.basename(decl.path)}`;
+            links.push(link);
+        }
         for (const site of includeSites(this.manager, doc)) {
             if (!this.manager.engine.exists(site.target)) {
                 continue;

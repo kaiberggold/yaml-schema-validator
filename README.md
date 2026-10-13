@@ -1,18 +1,19 @@
 # YAML Scheme Validator
 
 A VS Code extension (TypeScript) that validates YAML
-configuration files against a *scheme* file next to them, follows `extend`
+configuration files against a *scheme* file (next to them or declared in their
+first line), follows `extends`
 includes recursively, and assists while editing.
 
 | Feature | |
 |---|---|
-| Scheme lookup | `name.yml` is validated by `name.scheme.yml` in the same folder (`.yaml` works too) |
-| Includes | `extend: other.yml`, `extend: [a.yml, b.yml]` or `key: !extend other.yml`, fully recursive with cycle detection |
+| Scheme lookup | `name.yml` is validated by `name.schema.yml` in the same folder (`.yaml` works too, the `schema` part is configurable), or by the scheme named in its first line: `# schema: path/to/x.schema.yml` |
+| Includes | `extends: other.yml`, `extends: [a.yml, b.yml]` or `key: !extends other.yml`, fully recursive with cycle detection |
 | Diagnostics | Error / warning / info squiggles with customizable messages, clickable links to the scheme rule, related files and the include chain |
 | Live refresh | Revalidates while typing and whenever a YAML file, an included file or a scheme changes on disk (similar to CMake re-configuring) |
-| Completion | Keys (with snippets for enums, booleans, defaults, maps and lists), values, `extend` file paths |
+| Completion | Keys (with snippets for enums, booleans, defaults, maps and lists), values, `extends` file paths |
 | Hover | Description, type, default, allowed values, constraints and a link to the definition in the scheme |
-| Navigation | Ctrl+Click on `extend` paths, *Go to Definition* on keys (jumps into the scheme) and on `ref:` in schemes |
+| Navigation | Ctrl+Click on `extends` paths, *Go to Definition* on keys (jumps into the scheme) and on `ref:` in schemes |
 
 Scheme files themselves are validated against a built-in meta scheme, so you get
 completion, hover help and errors while writing schemes as well.
@@ -21,25 +22,25 @@ completion, hover help and errors while writing schemes as well.
 
 ```
 config/
-├── app.yml                 # validated by app.scheme.yml
-├── app.scheme.yml
-├── base.yml                # no own scheme: validated through app.scheme.yml
+├── app.yml                 # validated by app.schema.yml
+├── app.schema.yml
+├── base.yml                # no own scheme: validated through app.schema.yml
 └── database/
-    ├── db.yml              # validated by db.scheme.yml AND as part of app.yml
-    └── db.scheme.yml
+    ├── db.yml              # validated by db.schema.yml AND as part of app.yml
+    └── db.schema.yml
 ```
 
 `app.yml`
 
 ```yaml
-extend: base.yml               # merge base.yml into this mapping
+extends: base.yml               # merge base.yml into this mapping
 name: demo
 server:
   port: 8080
-database: !extend database/db.yml   # value = content of db.yml
+database: !extends database/db.yml   # value = content of db.yml
 ```
 
-`app.scheme.yml`
+`app.schema.yml`
 
 ```yaml
 description: Application configuration.
@@ -71,30 +72,52 @@ definitions:
 A complete example lives in [`example/`](example/). Press <kbd>F5</kbd> in this
 repository to open it in an Extension Development Host.
 
-## Includes (`extend`)
+## Declaring the scheme in the first line
 
-- `extend: path` or `extend: [path1, path2]` inside any mapping merges the
+Instead of a sibling `name.schema.yml`, a YAML file can name its scheme in its
+**first line**:
+
+```yaml
+# schema: ../schemas/app.schema.yml
+extends: ../app.yml
+mode: production
+```
+
+- The path is relative to the file; `# $schema: …`, `# scheme: …` and
+  `#schema=…` are accepted as well, and the path may be quoted.
+- A declaration takes precedence over a sibling scheme file.
+- Included files may declare their own scheme the same way.
+- Missing declared files are reported on the first line. The declared scheme
+  should follow the naming convention (`*.schema.yml`), otherwise it is used
+  but not validated itself (a warning says so).
+- The path is a link (Ctrl+Click), has a hover, and completion offers scheme
+  files while typing it.
+
+## Includes (`extends`)
+
+- `extends: path` or `extends: [path1, path2]` inside any mapping merges the
   mappings of the referenced files into that mapping. Later files override
-  earlier ones and keys written next to `extend` override everything included.
+  earlier ones and keys written next to `extends` override everything included.
   Nested mappings are merged deeply, lists and scalars are replaced.
-- `key: !extend path` replaces the value with the whole content of the file
-  (any type). `!extend [a.yml, b.yml]` merges several mappings.
+- `key: !extends path` replaces the value with the whole content of the file
+  (any type). `!extends [a.yml, b.yml]` merges several mappings.
 - Paths are relative to the including file; the `.yml` / `.yaml` extension may be omitted.
 - Includes are resolved recursively; cycles (`a → b → a`), missing files and
   non-mapping files used for merging are reported at the include.
 - The YAML merge key `<<: *anchor` and aliases are supported as well.
-- In scheme files `extend` is only recognised at the root, so schemes can share
-  `definitions` (the key `extend` stays usable as a property name).
-- The keyword can be changed with `yamlScheme.extendKeyword`.
+- In scheme files `extends` is only recognised at the root, so schemes can share
+  `definitions` (the key `extends` stays usable as a property name).
+- The keyword can be changed with `yamlScheme.extendKeyword`; the tag is always
+  `!` followed by the keyword.
 
 ### How included files are validated
 
 1. The **merged result** of the main file is validated against the main
    scheme. Problems are reported in the file where the offending key or value
    is written, with the include chain attached as related locations.
-2. Every included file that has **its own scheme** (`db.yml` + `db.scheme.yml`)
+2. Every included file that has **its own scheme** (`db.yml` + `db.schema.yml`)
    is additionally validated against it.
-3. The `extend` line shows a **summary** (`Included file 'db.yml' has 2 errors`)
+3. The `extends` line shows a **summary** (`Included file 'db.yml' has 2 errors`)
    whose related locations jump to every problem in the included tree.
 
 Completion and hover in an included file without own scheme use the part of the
@@ -156,9 +179,10 @@ locations.
 
 | Setting | Default | |
 |---|---|---|
-| `yamlScheme.extendKeyword` | `extend` | Include keyword |
+| `yamlScheme.extendKeyword` | `extends` | Include keyword; the tag form uses the same word (`!extends`) |
+| `yamlScheme.schemeInfix` | `schema` | Scheme files are named `name.<infix>.yml` |
 | `yamlScheme.unknownKeySeverity` | `warning` | Severity of undeclared keys (`ignore` to disable) |
-| `yamlScheme.includeSummary` | `true` | Summary diagnostic on `extend` lines |
+| `yamlScheme.includeSummary` | `true` | Summary diagnostic on `extends` lines |
 | `yamlScheme.debounceMs` | `250` | Delay before revalidating |
 | `yamlScheme.exclude` | `**/{node_modules,.git}/**` | Ignored when searching for schemes |
 

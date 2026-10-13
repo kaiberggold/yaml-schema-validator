@@ -17,7 +17,7 @@ export interface DocProvider {
     exists(file: string): boolean;
 }
 
-/** One `extend` hop: the location of the include in `file` that pulled in `target`. */
+/** One `extends` hop: the location of the include in `file` that pulled in `target`. */
 export interface IncludeStep {
     file: string;
     start: number;
@@ -84,7 +84,10 @@ export type ReportFn = (
     related?: RelatedInfo[],
 ) => void;
 
-export const EXTEND_TAG = '!extend';
+/** Tag form of the include keyword: `key: !extends file.yml`. */
+export function includeTag(keyword: string): string {
+    return `!${keyword}`;
+}
 
 /** Finds include sites in a single parsed document (no recursion), used for links and hover. */
 export function findIncludeSites(
@@ -113,7 +116,7 @@ export function findIncludeSites(
         if (!n) {
             return;
         }
-        if (n.tag === EXTEND_TAG) {
+        if (n.tag === includeTag(keyword)) {
             addPaths(n);
             return;
         }
@@ -134,7 +137,7 @@ export function findIncludeSites(
 }
 
 /**
- * Builds the effective tree of a file. `extend` keys (or `!extend` tags) are
+ * Builds the effective tree of a file. `extends` keys (or `!extends` tags) are
  * replaced by the content of the referenced files, recursively. Problems
  * (syntax errors, missing files, cycles) are passed to `report`.
  */
@@ -182,7 +185,7 @@ export class Resolver {
             }
             return this.conv(node.target, file, stack, via, false, depth + 1);
         }
-        if (node.tag === EXTEND_TAG) {
+        if (node.tag === includeTag(this.keyword)) {
             return this.includeValue(node, file, stack, via);
         }
         if (node.kind === 'scalar') {
@@ -245,7 +248,7 @@ export class Resolver {
         };
     }
 
-    /** Value of an `extend` key: one path or a list of paths, each must contain a mapping. */
+    /** Value of an `extends` key: one path or a list of paths, each must contain a mapping. */
     private includeMaps(value: YNode, keyNode: YScalar, file: string, stack: string[], via: IncludeStep[]): EMap[] {
         const out: EMap[] = [];
         const paths: YScalar[] = [];
@@ -285,7 +288,7 @@ export class Resolver {
         return out;
     }
 
-    /** `!extend path` (value replaced by the file content) or `!extend [a, b]` (merged mappings). */
+    /** `!extends path` (value replaced by the file content) or `!extends [a, b]` (merged mappings). */
     private includeValue(node: YNode, file: string, stack: string[], via: IncludeStep[]): ENode {
         const empty: EScalar = { kind: 'scalar', value: null, type: 'null', file, start: node.start, end: node.end, via };
         if (node.kind === 'scalar' && typeof node.value === 'string') {
@@ -301,7 +304,7 @@ export class Resolver {
             }
             return { kind: 'map', entries, file, start: node.start, end: node.end, via, mounted };
         }
-        this.report(file, node.start, node.end, 'error', 'include', `'${EXTEND_TAG}' expects a file path or a list of file paths`);
+        this.report(file, node.start, node.end, 'error', 'include', `'${includeTag(this.keyword)}' expects a file path or a list of file paths`);
         return empty;
     }
 

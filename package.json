@@ -1,8 +1,8 @@
 {
   "name": "yaml-scheme-validator",
   "displayName": "YAML Scheme Validator",
-  "description": "Validates YAML config files against sibling *.scheme.yml files, with recursive 'extend' includes, diagnostics, completion and hover help.",
-  "version": "0.1.0",
+  "description": "Validates YAML config files against *.schema.yml files (sibling or declared in the first line), with recursive 'extends' includes, diagnostics, completion and hover help.",
+  "version": "0.2.0",
   "publisher": "kaiberggold",
   "engines": {
     "vscode": "^1.85.0"
@@ -24,8 +24,8 @@
   ],
   "activationEvents": [
     "onLanguage:yaml",
-    "workspaceContains:**/*.scheme.yml",
-    "workspaceContains:**/*.scheme.yaml"
+    "workspaceContains:**/*.schema.yml",
+    "workspaceContains:**/*.schema.yaml"
   ],
   "contributes": {
     "commands": [
@@ -45,8 +45,14 @@
       "properties": {
         "yamlScheme.extendKeyword": {
           "type": "string",
-          "default": "extend",
-          "description": "Mapping key that includes other YAML files (`extend: other.yml` or `extend: [a.yml, b.yml]`). The tag form `!extend other.yml` is always available."
+          "default": "extends",
+          "description": "Mapping key that includes other YAML files (`extends: other.yml` or `extends: [a.yml, b.yml]`). The tag form uses the same word: `key: !extends other.yml`."
+        },
+        "yamlScheme.schemeInfix": {
+          "type": "string",
+          "default": "schema",
+          "pattern": "^[\\w.-]+$",
+          "description": "Middle part of scheme file names: `name.yml` is validated by `name.<infix>.yml` in the same folder (default `name.schema.yml`). A file can also name its scheme in its first line: `# schema: path/to/file.schema.yml`."
         },
         "yamlScheme.unknownKeySeverity": {
           "type": "string",
@@ -63,7 +69,7 @@
         "yamlScheme.includeSummary": {
           "type": "boolean",
           "default": true,
-          "description": "Show a summary diagnostic on each `extend` line when the included file (or anything it includes) has problems."
+          "description": "Show a summary diagnostic on each `extends` line when the included file (or anything it includes) has problems."
         },
         "yamlScheme.debounceMs": {
           "type": "number",
@@ -74,7 +80,7 @@
         "yamlScheme.exclude": {
           "type": "string",
           "default": "**/{node_modules,.git}/**",
-          "description": "Glob of files ignored when scanning the workspace for *.scheme.yml files."
+          "description": "Glob of files ignored when scanning the workspace for scheme files and scheme declarations."
         }
       }
     }

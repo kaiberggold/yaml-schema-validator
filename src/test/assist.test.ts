@@ -9,9 +9,9 @@ import { MemHost, p } from './helpers';
 const env = { lineOf: () => 1, link: () => 'file:///x' };
 
 function scheme(text: string) {
-    const engine = new Engine(new MemHost({ 's.scheme.yml': text }), DEFAULT_OPTIONS);
-    const root = new Resolver(engine.docs, 'extend', () => undefined).buildFile(p('s.scheme.yml'))!;
-    return compileScheme(root, p('s.scheme.yml')).root;
+    const engine = new Engine(new MemHost({ 's.schema.yml': text }), DEFAULT_OPTIONS);
+    const root = new Resolver(engine.docs, 'extends', () => undefined).buildFile(p('s.schema.yml'))!;
+    return compileScheme(root, p('s.schema.yml')).root;
 }
 
 const S = scheme(`
@@ -40,8 +40,8 @@ test('cursor context: nested key position and siblings', () => {
     assert.equal(c.kind, 'key');
     assert.deepEqual(c.path, ['server']);
     assert.deepEqual([...c.siblings].sort(), ['host', 'tls']);
-    const names = keyCompletions(walk(S, c.path), c.siblings, env, 'extend').map((e) => e.label);
-    assert.deepEqual(names, ['port', 'mode', 'extend']);
+    const names = keyCompletions(walk(S, c.path), c.siblings, env, 'extends').map((e) => e.label);
+    assert.deepEqual(names, ['port', 'mode', 'extends']);
 });
 
 test('cursor context: list items', () => {
@@ -65,7 +65,7 @@ test('cursor context: value position', () => {
     assert.equal(c.key, 'mode');
     assert.deepEqual(c.path, ['server']);
     assert.deepEqual(valueCompletions(walk(S, [...c.path, c.key!])).map((e) => e.label), ['b', 'a']);
-    const tag = getCursorContext(['x: !extend sub/'], 0, 15);
+    const tag = getCursorContext(['x: !extends sub/'], 0, 16);
     assert.equal(tag.extendTag, true);
     assert.equal(tag.prefix, 'sub/');
 });
