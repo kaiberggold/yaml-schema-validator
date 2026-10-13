@@ -54,6 +54,7 @@ jobs:
       - name: Tag development version
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(steps.package.outputs.version, '-devel.')
         env:
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.package.outputs.version }}
         run: |
           TAG="v$VERSION"
@@ -64,9 +65,11 @@ jobs:
           # the commit that set this version (later repository-only commits keep it)
           COMMIT=$(git log --format=%H --reverse -S"\"version\": \"$VERSION\"" -- package.json | head -n 1)
           COMMIT=${COMMIT:-$GITHUB_SHA}
-          git tag "$TAG" "$COMMIT"
-          git push origin "$TAG"
-          echo "Tagged $COMMIT as $TAG"
+          if gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$COMMIT" >/dev/null; then
+            echo "Tagged $COMMIT as $TAG"
+          else
+            echo "::warning::Could not create $TAG on $COMMIT (see the log above); create it by hand: git tag $TAG $COMMIT && git push origin $TAG"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
