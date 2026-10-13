@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.1 (in development)
+## 0.5.1
 
 - The extension declares its MIT license (`package.json`); the license file is part of the package.
 
