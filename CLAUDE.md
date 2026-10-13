@@ -16,7 +16,9 @@ next **development version** and a **git tag**, in the same commit:
    upcoming release: `0.4.1-devel.3` + minor → `0.5.0-devel.1`) and keeps the
    `## <next release> (in development)` heading of `CHANGELOG.md` in sync.
 2. Add the change as a bullet under that heading.
-3. Commit, then `git tag v<version>` on that commit and push the branch and the tag.
+3. Commit and push the branch. The workflow (`.github/workflows/build.yml`) then
+   creates the tag `v<version>` on the commit that introduced the version (Claude
+   sessions cannot push tags themselves).
 
 Releases are **only made by the user** (never on your own): `npm run bump -- release`
 turns `0.5.0-devel.2` into `0.5.0` (and the heading into `## 0.5.0`); after the
