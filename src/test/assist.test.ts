@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { ITEM, getCursorContext, keyAt, keyCompletions, keySnippet, valueCompletions, walk, hoverMarkdown, inferScheme } from '../core/assist';
+import { ITEM, getCursorContext, keyAt, keyCompletions, keySnippet, valueCompletions, walk, hoverMarkdown, inferScheme, isRequired } from '../core/assist';
 import { Resolver } from '../core/effective';
 import { Engine, DEFAULT_OPTIONS } from '../core/engine';
 import { compileScheme } from '../core/scheme';
@@ -18,20 +18,24 @@ const S = scheme(`
 properties:
   server:
     description: Server settings
+    required: [port]
     properties:
       host: {type: string, default: localhost}
-      port: {type: integer, required: true}
+      port: {type: integer}
       mode: {enum: [a, b], default: b}
-      tls: boolean
+      tls: {type: boolean}
   items:
-    type: list
+    type: array
     items:
       properties:
-        name: string
+        name: {type: string}
         kind: {enum: [x, y]}
   tags:
-    type: list
+    type: array
     items: {enum: [red, green]}
+  env:
+    patternProperties:
+      "^[A-Z_]+$": {type: string, description: Environment variable}
 `);
 
 test('cursor context: nested key position and siblings', () => {
@@ -84,7 +88,7 @@ test('key at position and hover text', () => {
     const k = keyAt(lines, 2, 5)!;
     assert.deepEqual(k.path, ['items', ITEM, 'kind']);
     const md = hoverMarkdown(walk(S, ['server'])[0], 'server', env);
-    assert.match(md, /\*\*server\*\* · `map`/);
+    assert.match(md, /\*\*server\*\* · `object`/);
     assert.match(md, /Server settings/);
     assert.match(md, /Keys: `host`, `port`\*, `mode`, `tls`/);
 });
@@ -93,4 +97,13 @@ test('inferScheme produces a valid scheme', () => {
     const text = inferScheme({ a: 1, b: [{ c: 'x' }], d: true });
     const root = scheme(text);
     assert.deepEqual([...root.properties!.keys()], ['a', 'b', 'd']);
+});
+
+test('walking through patternProperties, required flags and hover facts', () => {
+    const nodes = walk(S, ['env', 'HOME']);
+    assert.equal(nodes.length, 1);
+    assert.match(hoverMarkdown(nodes[0], 'HOME', env), /Environment variable/);
+    assert.equal(isRequired(walk(S, ['server']), 'port'), true);
+    assert.equal(isRequired(walk(S, ['server']), 'host'), false);
+    assert.match(hoverMarkdown(walk(S, ['server', 'port'])[0], 'port', env, true), /\*required\*/);
 });

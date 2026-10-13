@@ -1,22 +1,24 @@
-type: map
+$schema: "http://json-schema.org/draft-07/schema#"
+type: object
 description: Database connection.
+required: [driver, user, password]
+additionalProperties: false
 properties:
+  extends:
+    type: [string, array]
   driver:
     enum: [postgres, mysql, sqlite]
-    required: true
     description: Database driver.
   port:
     type: integer
     description: Database port.
   pool:
-    type: map
+    type: object
     properties:
-      min: {type: integer, min: 0}
-      max: {type: integer, min: 1}
+      min: {type: integer, minimum: 0}
+      max: {type: integer, minimum: 1}
   user:
     type: string
-    required: true
     description: Login user (usually provided by `credentials.yml`).
   password:
     type: string
-    required: true

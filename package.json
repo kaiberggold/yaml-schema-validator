@@ -1,8 +1,8 @@
 {
   "name": "yaml-scheme-validator",
   "displayName": "YAML Scheme Validator",
-  "description": "Validates YAML config files against *.schema.yml files (sibling or declared in the first line), with recursive 'extends' includes, diagnostics, completion and hover help.",
-  "version": "0.2.0",
+  "description": "Validates YAML config files against JSON Schema (draft-07) scheme files written in YAML (sibling *.schema.yml or declared in the first line), with recursive 'extends' includes, diagnostics, completion and hover help. Compatible with the Red Hat YAML extension.",
+  "version": "0.3.0",
   "publisher": "kaiberggold",
   "engines": {
     "vscode": "^1.85.0"
@@ -38,6 +38,11 @@
         "command": "yamlScheme.openScheme",
         "title": "Open Scheme for Current File",
         "category": "YAML Scheme"
+      },
+      {
+        "command": "yamlScheme.addModeline",
+        "title": "Add Red Hat YAML Modeline (yaml-language-server: $schema=\u2026)",
+        "category": "YAML Scheme"
       }
     ],
     "configuration": {
@@ -64,7 +69,7 @@
             "ignore"
           ],
           "default": "warning",
-          "description": "Default severity for keys that are not declared in the scheme (can be overridden per node with `severity`)."
+          "description": "Default severity for keys that are not allowed (`additionalProperties: false`); can be overridden per schema with `x-severity`."
         },
         "yamlScheme.includeSummary": {
           "type": "boolean",

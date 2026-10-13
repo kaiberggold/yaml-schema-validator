@@ -1,17 +1,26 @@
-# Scheme for app.yml (same folder, same base name).
+# Scheme for app.yml: a JSON Schema (draft-07) written in YAML.
+$schema: "http://json-schema.org/draft-07/schema#"
 description: Application configuration.
-type: map
+type: object
+required: [name, version, server]
+additionalProperties: false
 properties:
+  extends:
+    description: Files merged into this one (handled by YAML Scheme Validator; declared so other JSON Schema tools accept the key).
+    type: [string, array]
+    items:
+      type: string
   name:
     type: string
-    required: true
     pattern: "^[a-z][a-z0-9-]*$"
     description: Technical name of the application (lowercase, digits and dashes).
-    messages:
+    # shown by this extension and by Red Hat YAML (which does not fill in placeholders)
+    patternErrorMessage: "The application name must be lowercase kebab-case (letters, digits and dashes)"
+    # placeholders are filled in by this extension; other tools ignore x-errorMessages
+    x-errorMessages:
       pattern: "Application name '${value}' must be lowercase kebab-case (rule: ${scheme}:${ruleLine})"
   version:
     type: string
-    required: true
     pattern: "^\\d+\\.\\d+\\.\\d+$"
     description: Semantic version, e.g. `1.2.3`. Quote it so YAML keeps it a string.
     examples: ["1.0.0"]
@@ -25,29 +34,28 @@ properties:
     description: Minimal level of log messages.
   timeout:
     type: integer
-    min: 1
+    minimum: 1
     description: Request timeout in seconds.
   server:
-    ref: server
-    required: true
+    $ref: "#/definitions/server"
   database:
-    type: map
+    type: object
     description: Database settings, usually included from `database/db.yml` (validated by its own scheme).
-    additionalProperties: true
   features:
-    type: list
+    type: array
     description: Optional features.
     items:
-      ref: feature
+      $ref: "#/definitions/feature"
   debug:
     type: boolean
-    deprecated: "use 'logLevel: debug' instead"
+    deprecationMessage: "use 'logLevel: debug' instead"
     description: Old switch for debug output.
 
 definitions:
   server:
-    type: map
+    type: object
     description: HTTP server settings.
+    additionalProperties: false
     properties:
       host:
         type: string
@@ -55,13 +63,15 @@ definitions:
         description: Interface to bind to.
       port:
         type: integer
-        min: 1
-        max: 65535
+        minimum: 1
+        maximum: 65535
         default: 8080
         description: TCP port.
-        severity: error
-        message: "Port ${value} is out of range [${min}, ${max}] — see the server docs."
-        see:
+        x-severity: error
+        x-errorMessages:
+          minimum: "Port ${value} is out of range [${minimum}, ${maximum}] — see the server docs."
+          maximum: "Port ${value} is out of range [${minimum}, ${maximum}] — see the server docs."
+        x-see:
           - README.md:1
           - file: database/db.yml
             label: Database port is configured separately
@@ -70,11 +80,12 @@ definitions:
         default: false
         description: Enable HTTPS.
   feature:
-    type: map
+    type: object
+    required: [name]
+    additionalProperties: false
     properties:
       name:
         type: string
-        required: true
         description: Feature identifier.
       enabled:
         type: boolean
