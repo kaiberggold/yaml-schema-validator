@@ -1,0 +1,57 @@
+name: Build
+
+# Every push / pull request: type check, test and package the extension (.vsix as build artifact).
+# A pushed tag `v<version>` (matching package.json) also publishes a GitHub release with the .vsix.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Package
+        id: package
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          FILE="yaml-scheme-validator-${VERSION}.vsix"
+          npx --yes @vscode/vsce@3 package --skip-license --out "$FILE"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.file }}
+          path: ${{ steps.package.outputs.file }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.package.outputs.version }}
+          FILE: ${{ steps.package.outputs.file }}
+        run: |
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION"
+            exit 1
+          fi
+          # release notes: the CHANGELOG.md section of this version
+          awk -v v="## $VERSION" '$0 == v {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" "$FILE" --title "$GITHUB_REF_NAME" --notes-file notes.md --target "$GITHUB_SHA"

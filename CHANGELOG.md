@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Docs: installation from GitHub releases.
+
 ## 0.3.0
 
 - **Breaking:** scheme files are now JSON Schema draft-07 documents written in YAML, so the

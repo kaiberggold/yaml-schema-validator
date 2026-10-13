@@ -21,6 +21,18 @@ and other JSON Schema tools can use the same files as a backup.
 Scheme files themselves are checked against a built-in draft-07 meta-scheme, so
 you get completion, hover help and errors while writing schemes as well.
 
+## Installation
+
+Download `yaml-scheme-validator-<version>.vsix` from the
+[GitHub releases](https://github.com/kaiberggold/yaml-schema-validator/releases)
+and install it with *Extensions: Install from VSIX…* in the command palette, or:
+
+```sh
+code --install-extension yaml-scheme-validator-<version>.vsix
+```
+
+Every build on GitHub Actions also keeps the `.vsix` as a build artifact.
+
 ## Quick start
 
 ```
@@ -262,6 +274,10 @@ npm run typecheck
 npm test           # tsc → out/, unit tests with node:test
 npm run package    # vsce package (runs a minified bundle first)
 ```
+
+Releases: bump the version in `package.json`, add the `CHANGELOG.md` section,
+then push a tag `v<version>`. The workflow in `.github/workflows/build.yml`
+builds the `.vsix` and publishes a GitHub release with it.
 
 All packages are dev dependencies: the published extension is a single bundled
 file without `node_modules`. Open the repository in VS Code and press
