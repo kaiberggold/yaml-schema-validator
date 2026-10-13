@@ -18,7 +18,8 @@ next **development version** and a **git tag**, in the same commit:
 2. Add the change as a bullet under that heading.
 3. Commit and push the branch. The workflow (`.github/workflows/build.yml`) then
    creates the tag `v<version>` on the commit that introduced the version (Claude
-   sessions cannot push tags themselves).
+   sessions cannot push tags themselves). This needs the repository secret
+   `TAG_TOKEN`; without it the run only warns and the tag has to be set by hand.
 
 Releases are **only made by the user** (never on your own): `npm run bump -- release`
 turns `0.5.0-devel.2` into `0.5.0` (and the heading into `## 0.5.0`); after the
