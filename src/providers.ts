@@ -280,7 +280,7 @@ export class HoverProvider implements vscode.HoverProvider {
         const lines = [`**${this.manager.extendKeyword}** → [${path.basename(target)}](${link})`, `\`${target}\``];
         lines.push(
             scheme
-                ? `Validated by its own scheme [${path.basename(scheme)}](${vscode.Uri.file(scheme).toString()}) and by the scheme of this file.`
+                ? `Validated by its own scheme [${path.basename(scheme)}](${vscode.Uri.file(scheme).toString()}) only (not by the scheme of this file).`
                 : 'No own scheme: validated by the scheme of this file.',
         );
         return lines.join('\n\n');

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Content included from a file that has its own scheme is now validated only against that
+  scheme. The including scheme no longer reports its keys (they still satisfy `required`).
+
 ## 0.2.0
 
 - **Breaking:** the include keyword now defaults to `extends` (tag form `!extends`; the tag

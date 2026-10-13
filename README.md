@@ -112,11 +112,14 @@ mode: production
 
 ### How included files are validated
 
-1. The **merged result** of the main file is validated against the main
-   scheme. Problems are reported in the file where the offending key or value
-   is written, with the include chain attached as related locations.
-2. Every included file that has **its own scheme** (`db.yml` + `db.schema.yml`)
-   is additionally validated against it.
+1. An included file that has **its own scheme** (`db.yml` + `db.schema.yml`, or
+   one declared in its first line) is validated **only against that scheme**.
+   In the including file its keys just count as present, so they satisfy
+   `required` there but are never reported as unknown or wrongly typed.
+2. An included file **without its own scheme** is validated as part of the
+   merged result of the including file, against the including file's scheme.
+   Problems are reported in the file where the offending key or value is
+   written, with the include chain attached as related locations.
 3. The `extends` line shows a **summary** (`Included file 'db.yml' has 2 errors`)
    whose related locations jump to every problem in the included tree.
 

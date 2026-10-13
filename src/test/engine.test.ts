@@ -270,3 +270,39 @@ test('scheme file infix and include keyword are configurable', () => {
         setSchemeInfix(undefined);
     }
 });
+
+test('content from an included file with its own scheme is only validated by that scheme', () => {
+    const files = {
+        'app.schema.yml': 'properties:\n  map:\n    properties:\n      first: {required: true}\n  name: {type: string, required: true}\n',
+        'app.yml': 'extends: [part.yml, plain.yml]\nmap:\n  first: 1\n',
+        // part.yml has its own scheme which allows more map entries
+        'part.yml': 'name: from-part\nmap:\n  second: 2\n',
+        'part.schema.yml': 'properties:\n  name: string\n  map:\n    properties:\n      second: {type: integer}\n',
+        // plain.yml has no scheme: it is still checked through app.schema.yml
+        'plain.yml': 'map:\n  third: 3\n',
+    };
+    const r = run(files, 'app.yml');
+    assert.deepEqual(summary(r.problems), [
+        "plain.yml:2 warning Unknown key 'third'. Allowed keys: first",
+        "app.yml:1 warning Included file 'plain.yml' has 1 warning",
+    ]);
+    // ... but its own scheme still applies
+    const own = run({ ...files, 'part.yml': 'name: 5\nmap:\n  second: x\n' }, 'app.yml');
+    assert.deepEqual(summary(own.problems).filter((m) => m.startsWith('part.yml')), [
+        "part.yml:1 error 'name' must be string, found integer '5'",
+        "part.yml:3 error 'second' must be integer, found string 'x'",
+    ]);
+});
+
+test('a value mounted with the tag from a file with its own scheme is not checked by the including scheme', () => {
+    const r = run(
+        {
+            'app.schema.yml': 'properties:\n  db: {type: string}\n',
+            'app.yml': 'db: !extends db.yml\n',
+            'db.yml': 'port: 1\n',
+            'db.schema.yml': 'properties:\n  port: integer\n',
+        },
+        'app.yml',
+    );
+    assert.deepEqual(summary(r.problems), []);
+});

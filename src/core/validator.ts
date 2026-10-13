@@ -17,6 +17,12 @@ export interface Annotation {
 
 export interface ValidatorOptions {
     unknownKeySeverity: Severity | 'ignore';
+    /**
+     * Files that are validated by a scheme of their own. Content coming from
+     * them (through `extends`) is only checked against that scheme: here it
+     * merely counts as present for `required`.
+     */
+    hasOwnScheme?: (file: string) => boolean;
 }
 
 const DEFAULT_MESSAGES: Record<ProblemKind, string> = {
@@ -180,6 +186,10 @@ export class Validator {
 
     // ----------------------------------------------------------- validation
 
+    private ownedElsewhere(file: string): boolean {
+        return !!this.options.hasOwnScheme?.(file);
+    }
+
     private validate(node: ENode, raw: SchemaNode, ctx: Ctx): void {
         const s = deref(raw);
         if (!this.dry) {
@@ -189,6 +199,12 @@ export class Validator {
                     this.mounts.set(k, raw);
                 }
             }
+        }
+        if (this.ownedElsewhere(node.file)) {
+            // e.g. `key: !extends part.yml` where part.yml has its own scheme
+            return;
+        }
+        if (!this.dry) {
             this.annotate(node.file, { start: node.start, end: node.end, kind: 'value', schema: s, key: ctx.key, path: ctx.path });
         }
         if (s.deprecated !== undefined && s.deprecated !== false && ctx.entry) {
@@ -285,6 +301,10 @@ export class Validator {
         const props = s.properties;
         const present = new Set(node.entries.map((e) => e.key));
         for (const entry of node.entries) {
+            if (this.ownedElsewhere(entry.file)) {
+                // merged in from a file with its own scheme: validated there
+                continue;
+            }
             const childPath = ctx.path ? `${ctx.path}.${entry.key}` : entry.key;
             let target = props?.get(entry.key);
             if (!target) {

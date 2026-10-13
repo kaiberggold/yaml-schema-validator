@@ -275,7 +275,22 @@ class Run {
         res.schema = schema;
 
         if (schema) {
-            const v = new Validator(docs, { unknownKeySeverity: options.unknownKeySeverity });
+            const rootKey = fileKey(file);
+            const owned = new Map<string, boolean>();
+            const hasOwnScheme = (f: string) => {
+                const k = fileKey(f);
+                if (k === rootKey) {
+                    return false;
+                }
+                let o = owned.get(k);
+                if (o === undefined) {
+                    const sf = isSchemeFile(f) ? undefined : this.engine.findScheme(f);
+                    o = !!sf && this.engine.exists(sf);
+                    owned.set(k, o);
+                }
+                return o;
+            };
+            const v = new Validator(docs, { unknownKeySeverity: options.unknownKeySeverity, hasOwnScheme });
             v.validateRoot(eroot, schema);
             res.problems.push(...v.problems);
             for (const [k, items] of v.annotations) {
