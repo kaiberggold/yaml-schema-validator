@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 (in development)
+
+- Docs: development versions (`0.5.0-devel.1`, ...) with git tags; releases are tagged by hand.
+
 ## 0.4.0
 
 - Anchors (`&name`) that no alias uses are greyed out with a hint (setting `yamlScheme.unusedAnchors`).

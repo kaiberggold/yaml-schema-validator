@@ -286,9 +286,17 @@ npm test           # tsc → out/, unit tests with node:test
 npm run package    # vsce package (runs a minified bundle first)
 ```
 
-Releases: bump the version in `package.json`, add the `CHANGELOG.md` section,
-then push a tag `v<version>`. The workflow in `.github/workflows/build.yml`
-builds the `.vsix` and publishes a GitHub release with it.
+Versions: every change gets the next development version and a git tag, e.g.
+`0.4.0` → `0.5.0-devel.1` → `0.5.0-devel.2`. `npm run bump -- patch|minor|major`
+computes it (a bigger change raises the upcoming release: `0.4.1-devel.3` + minor
+→ `0.5.0-devel.1`) and keeps the `## 0.5.0 (in development)` heading of
+`CHANGELOG.md` in sync. Development tags (`v0.5.0-devel.2`) are built by GitHub
+Actions (the `.vsix` is a build artifact) but not released.
+
+Releases are made by hand: `npm run bump -- release` (turns `0.5.0-devel.2` into
+`0.5.0` and the changelog heading into `## 0.5.0`), commit, then push the tag
+`v0.5.0`. The workflow in `.github/workflows/build.yml` builds the `.vsix` and
+publishes a GitHub release with it.
 
 All packages are dev dependencies: the published extension is a single bundled
 file without `node_modules`. Open the repository in VS Code and press

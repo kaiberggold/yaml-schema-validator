@@ -1,7 +1,8 @@
 name: Build
 
 # Every push / pull request: type check, test and package the extension (.vsix as build artifact).
-# A pushed tag `v<version>` (matching package.json) also publishes a GitHub release with the .vsix.
+# Tags `v<version>` must match package.json. Development tags (`v0.5.0-devel.1`) only build;
+# a release tag (`v0.5.0`) also publishes a GitHub release with the .vsix.
 on:
   push:
     branches: ['**']
@@ -36,22 +37,28 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
+      - name: Check tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION"
+            exit 1
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.package.outputs.file }}
           path: ${{ steps.package.outputs.file }}
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.package.outputs.version }}
           FILE: ${{ steps.package.outputs.file }}
         run: |
-          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION"
-            exit 1
-          fi
           # release notes: the CHANGELOG.md section of this version
           awk -v v="## $VERSION" '$0 == v {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
           gh release create "$GITHUB_REF_NAME" "$FILE" --title "$GITHUB_REF_NAME" --notes-file notes.md --target "$GITHUB_SHA"
