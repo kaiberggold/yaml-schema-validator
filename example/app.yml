@@ -6,14 +6,16 @@ name: Demo_App
 version: 1.2
 mode: staging
 server:
-  host: localhost
+  host: &host localhost   # unused anchor: shown greyed out
   port: 70000
   tls: yes
 database:
   extends: database/db.yml
 features:
   - name: search
-    enabled: true
+    enabled: &on true      # hover '&on' or '*on' to see the anchored value
   - name: export
     enbled: false
+  - name: audit
+    enabled: *on
 debug: true

@@ -49,7 +49,8 @@ export type ProblemKind =
     | 'oneOf'
     | 'not'
     | 'false'
-    | 'deprecated';
+    | 'deprecated'
+    | 'anchor';
 
 export interface Problem {
     file: string;

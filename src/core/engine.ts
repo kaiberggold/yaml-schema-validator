@@ -14,6 +14,8 @@ export interface EngineOptions {
     schemeInfix: string;
     unknownKeySeverity: Severity | 'ignore';
     includeSummary: boolean;
+    /** Grey out anchors (`&name`) that are never used by an alias. */
+    unusedAnchors: boolean;
 }
 
 export const DEFAULT_OPTIONS: EngineOptions = {
@@ -21,6 +23,7 @@ export const DEFAULT_OPTIONS: EngineOptions = {
     schemeInfix: DEFAULT_SCHEME_INFIX,
     unknownKeySeverity: 'warning',
     includeSummary: true,
+    unusedAnchors: true,
 };
 
 export interface FileAnnotations {
@@ -220,7 +223,12 @@ class Run {
             annotations: new Map(),
             mounts: new Map(),
         };
-        const resolver = new Resolver(docs, options.extendKeyword, (f, s, e, sev, kind, msg, rel) => sink.add(f, s, e, sev, kind, msg, rel));
+        const resolver = new Resolver(
+            docs,
+            options.extendKeyword,
+            (f, s, e, sev, kind, msg, rel) => sink.add(f, s, e, sev, kind, msg, rel),
+            options.unusedAnchors,
+        );
         const eroot = resolver.buildFile(file);
         resolver.files.forEach((f) => res.deps.add(f));
         // every visited config file depends on its (possibly not yet existing) scheme

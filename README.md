@@ -17,6 +17,7 @@ and other JSON Schema tools can use the same files as a backup.
 | Completion | Keys (with snippets for enums, booleans, defaults, objects and arrays), values, `extends` file paths |
 | Hover | Description, type, default, allowed values, constraints and a link to the definition in the scheme |
 | Navigation | Ctrl+Click on `extends` paths, *Go to Definition* on keys (jumps into the scheme) and on `$ref` in schemes |
+| Anchors | Unused anchors (`&name`) are greyed out; hover over `&name` or `*name` shows the anchored content and where it is used; *Go to Definition* / *Find All References* |
 
 Scheme files themselves are checked against a built-in draft-07 meta-scheme, so
 you get completion, hover help and errors while writing schemes as well.
@@ -239,6 +240,15 @@ converting the YAML) can validate with them:
 - When both extensions are active, both report problems. Set
   `"yaml.validate": false` in the workspace to keep Red Hat for completion only.
 
+## Anchors and aliases
+
+- An anchor (`&name`) that no alias (`*name`) uses is shown greyed out, with
+  "Anchor '&name' is never used" on hover (disable with `yamlScheme.unusedAnchors`).
+- Hovering over `&name` shows the anchored content and the lines that use it;
+  hovering over `*name` shows the content it stands for and where the anchor is.
+- *Go to Definition* on an alias jumps to its anchor, *Find All References* on
+  either lists the anchor and all its aliases.
+
 ## Commands and settings
 
 | Command | |
@@ -253,6 +263,7 @@ converting the YAML) can validate with them:
 | `yamlScheme.schemeInfix` | `schema` | Scheme files are named `name.<infix>.yml` |
 | `yamlScheme.unknownKeySeverity` | `warning` | Severity of keys forbidden by `additionalProperties: false` (`ignore` to disable) |
 | `yamlScheme.includeSummary` | `true` | Summary diagnostic on `extends` lines |
+| `yamlScheme.unusedAnchors` | `true` | Grey out anchors that no alias uses |
 | `yamlScheme.debounceMs` | `250` | Delay before revalidating |
 | `yamlScheme.exclude` | `**/{node_modules,.git}/**` | Ignored when searching for schemes |
 

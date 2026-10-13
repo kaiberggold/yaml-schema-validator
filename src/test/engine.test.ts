@@ -453,3 +453,12 @@ test('a value mounted with the tag from a file with its own scheme is not checke
     );
     assert.deepEqual(summary(r.problems), []);
 });
+
+test('unused anchors are reported as hints', () => {
+    const files = { 'a.schema.yml': 'type: object\n', 'a.yml': 'x: &used 1\ny: *used\nz: &unused 2\n' };
+    assert.deepEqual(summary(run(files, 'a.yml').problems), ["a.yml:3 hint Anchor '&unused' is never used"]);
+    const p0 = run(files, 'a.yml').problems[0];
+    assert.equal(p0.kind, 'anchor');
+    assert.deepEqual(p0.range, { start: { line: 2, character: 3 }, end: { line: 2, character: 10 } });
+    assert.deepEqual(summary(run(files, 'a.yml', { unusedAnchors: false }).problems), []);
+});

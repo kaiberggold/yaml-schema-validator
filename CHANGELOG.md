@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+- Anchors (`&name`) that no alias uses are greyed out with a hint (setting `yamlScheme.unusedAnchors`).
+- Hover over an anchor or alias shows the anchored content, where it is used and where it is defined.
+- *Go to Definition* on an alias jumps to its anchor; *Find All References* lists the anchor and its aliases.
+
 ## 0.3.1
 
 - Docs: installation from GitHub releases.

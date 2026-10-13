@@ -30,6 +30,7 @@ export function readOptions(): EngineOptions & { debounceMs: number; exclude: st
         schemeInfix: c.get('schemeInfix', DEFAULT_SCHEME_INFIX) || DEFAULT_SCHEME_INFIX,
         unknownKeySeverity: c.get('unknownKeySeverity', DEFAULT_OPTIONS.unknownKeySeverity),
         includeSummary: c.get('includeSummary', DEFAULT_OPTIONS.includeSummary),
+        unusedAnchors: c.get('unusedAnchors', DEFAULT_OPTIONS.unusedAnchors),
         debounceMs: c.get('debounceMs', 250),
         exclude: c.get('exclude', '**/{node_modules,.git}/**'),
     };
@@ -467,6 +468,9 @@ function toDiagnostic(p: Problem): vscode.Diagnostic {
     }
     if (p.deprecated) {
         d.tags = [vscode.DiagnosticTag.Deprecated];
+    } else if (p.kind === 'anchor') {
+        // shown faded, like unused variables
+        d.tags = [vscode.DiagnosticTag.Unnecessary];
     }
     return d;
 }

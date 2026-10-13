@@ -54,9 +54,22 @@ export interface YError {
     code?: string;
 }
 
+/** An anchor (`&name`) and the aliases (`*name`) that refer to it. */
+export interface YAnchor {
+    name: string;
+    /** Offsets of the `&name` token. */
+    start: number;
+    end: number;
+    /** The anchored node. */
+    node: YNode;
+    /** Offsets of the aliases using this anchor. */
+    uses: { start: number; end: number }[];
+}
+
 export interface YDocument {
     root: YNode | undefined;
     errors: YError[];
+    anchors: YAnchor[];
 }
 
 const STYLES: Record<string, YScalar['style']> = {
@@ -75,12 +88,12 @@ export function parseYaml(text: string): YDocument {
         for (const e of docs.errors) {
             errors.push(toError(e, 'error'));
         }
-        return { root: undefined, errors };
+        return { root: undefined, errors, anchors: [] };
     }
     const list = docs as Document.Parsed[];
     const doc = list[0];
     if (!doc) {
-        return { root: undefined, errors };
+        return { root: undefined, errors, anchors: [] };
     }
     for (const e of doc.errors) {
         const err = toError(e, 'error');
@@ -103,8 +116,9 @@ export function parseYaml(text: string): YDocument {
         const r = list[1].range;
         errors.push({ start: r[0], end: Math.max(r[0] + 3, r[1]), message: 'Only the first YAML document is validated', severity: 'warning' });
     }
-    const conv = new Converter(doc, text.length, errors);
-    return { root: doc.contents ? conv.node(doc.contents as LibNode) : undefined, errors };
+    const conv = new Converter(doc, text, errors);
+    const root = doc.contents ? conv.node(doc.contents as LibNode) : undefined;
+    return { root, errors, anchors: conv.anchorList };
 }
 
 function toError(e: { pos: [number, number]; message: string; code: string }, severity: 'error' | 'warning'): YError {
@@ -113,13 +127,17 @@ function toError(e: { pos: [number, number]; message: string; code: string }, se
 }
 
 class Converter {
-    private readonly anchors = new Map<LibNode, YNode>();
+    private readonly anchors = new Map<LibNode, YAnchor>();
+    readonly anchorList: YAnchor[] = [];
+    private readonly length: number;
 
     constructor(
         private readonly doc: Document.Parsed,
-        private readonly length: number,
+        private readonly text: string,
         private readonly errors: YError[],
-    ) {}
+    ) {
+        this.length = text.length;
+    }
 
     private range(n: LibNode | null | undefined, fallback: number): [number, number] {
         const r = n?.range;
@@ -134,10 +152,12 @@ class Converter {
         let out: YNode;
         if (isAlias(n)) {
             const target = (n as Alias).resolve(this.doc);
+            const anchor = target ? this.anchors.get(target as LibNode) : undefined;
             if (!target) {
                 this.errors.push({ start, end: Math.max(end, start + 1), message: `Unknown anchor '${(n as Alias).source}'`, severity: 'error' });
             }
-            out = { kind: 'alias', name: (n as Alias).source, target: target ? this.anchors.get(target as LibNode) : undefined, start, end };
+            anchor?.uses.push({ start, end });
+            out = { kind: 'alias', name: (n as Alias).source, target: anchor?.node, start, end };
         } else if (isScalar(n)) {
             out = this.scalar(n, start, end);
         } else if (isMap(n)) {
@@ -167,9 +187,28 @@ class Converter {
     }
 
     private register(n: LibNode, y: YNode): void {
-        if (n.anchor) {
-            this.anchors.set(n, y);
+        if (!n.anchor || this.anchors.has(n)) {
+            return;
         }
+        const [start, end] = this.anchorToken(n.anchor, y.start);
+        const a: YAnchor = { name: n.anchor, start, end, node: y, uses: [] };
+        this.anchors.set(n, a);
+        this.anchorList.push(a);
+    }
+
+    /** Position of `&name` written before the content of the anchored node. */
+    private anchorToken(name: string, contentStart: number): [number, number] {
+        const token = `&${name}`;
+        let i = this.text.lastIndexOf(token, contentStart);
+        while (i >= 0) {
+            const before = this.text[i - 1];
+            const after = this.text[i + token.length];
+            if ((i === 0 || /[\s,[{:-]/.test(before)) && (after === undefined || /[\s,\]}]/.test(after))) {
+                return [i, i + token.length];
+            }
+            i = this.text.lastIndexOf(token, i - 1);
+        }
+        return [contentStart, contentStart];
     }
 
     private key(k: LibNode | null, fallback: number): YScalar {

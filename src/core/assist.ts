@@ -5,7 +5,7 @@
  */
 import * as path from 'path';
 import { SchemaNode, deref, describeType, expand, likelyTypes } from './scheme';
-import { resolvePlain } from './yaml';
+import { YAnchor, YDocument, resolvePlain } from './yaml';
 
 /** Path segment that stands for "an item of a list". */
 export const ITEM = '[]';
@@ -667,4 +667,46 @@ export function inferScheme(value: unknown): string {
     };
     emit(value, '');
     return lines.join('\n') + '\n';
+}
+
+// ------------------------------------------------------------------- anchors
+
+/** The anchor (`&name`) or alias (`*name`) at an offset. */
+export function anchorAt(doc: YDocument, offset: number): { anchor: YAnchor; kind: 'anchor' | 'alias'; start: number; end: number } | undefined {
+    for (const a of doc.anchors) {
+        if (offset >= a.start && offset <= a.end && a.end > a.start) {
+            return { anchor: a, kind: 'anchor', start: a.start, end: a.end };
+        }
+        for (const u of a.uses) {
+            if (offset >= u.start && offset <= u.end) {
+                return { anchor: a, kind: 'alias', start: u.start, end: u.end };
+            }
+        }
+    }
+    return undefined;
+}
+
+/** Source text of the anchored node, dedented and shortened to `maxLines`. */
+export function anchoredText(text: string, a: YAnchor, maxLines = 25): string {
+    const start = a.node.start;
+    const col = start - (text.lastIndexOf('\n', start - 1) + 1);
+    const lines = text.slice(start, a.node.end).replace(/\s+$/, '').split(/\r?\n/);
+    const out = lines.map((l, i) => (i === 0 ? l : l.slice(Math.min(col, l.length - l.trimStart().length))));
+    return out.length > maxLines ? [...out.slice(0, maxLines), '…'].join('\n') : out.join('\n');
+}
+
+export function anchorMarkdown(text: string, hit: { anchor: YAnchor; kind: 'anchor' | 'alias' }, lineOf: (offset: number) => number): string {
+    const a = hit.anchor;
+    let head: string;
+    if (hit.kind === 'anchor') {
+        const n = a.uses.length;
+        head = n
+            ? `**&${a.name}** · used ${n} time${n > 1 ? 's' : ''} (line${n > 1 ? 's' : ''} ${a.uses.map((u) => lineOf(u.start)).join(', ')})`
+            : `**&${a.name}** · *never used*`;
+    } else {
+        head = `**\\*${a.name}** → \`&${a.name}\` (line ${lineOf(a.start)})`;
+    }
+    const content = anchoredText(text, a);
+    const fence = content.includes('```') ? '````' : '```';
+    return content ? `${head}\n\n${fence}yaml\n${content}\n${fence}` : head;
 }
