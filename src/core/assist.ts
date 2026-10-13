@@ -300,10 +300,8 @@ export function walk(root: SchemaNode, segs: string[]): SchemaNode[] {
 export function childSchemas(n: SchemaNode, seg: string): SchemaNode[] {
     const isSchema = (x: SchemaNode | undefined): x is SchemaNode => !!x && deref(x).bool === undefined;
     if (seg === ITEM) {
-        if (Array.isArray(n.items)) {
-            return [...n.items, ...(isSchema(n.additionalItems) ? [n.additionalItems] : [])];
-        }
-        return n.items ? [n.items] : [];
+        // the item position is not known here: offer all item schemas
+        return [...(n.prefixItems ?? []), ...(isSchema(n.items) ? [n.items] : []), ...(isSchema(n.unevaluatedItems) ? [n.unevaluatedItems] : [])];
     }
     const out: SchemaNode[] = [];
     const p = n.properties?.get(seg);
@@ -317,6 +315,9 @@ export function childSchemas(n: SchemaNode, seg: string): SchemaNode[] {
     }
     if (!out.length && isSchema(n.additionalProperties)) {
         out.push(n.additionalProperties);
+    }
+    if (!out.length && isSchema(n.unevaluatedProperties)) {
+        out.push(n.unevaluatedProperties);
     }
     return out;
 }
@@ -397,8 +398,7 @@ export function keySnippet(key: string, prop: SchemaNode): { text: string; retri
         return { text: `${k}:\n\t$0`, retrigger: alts.some((a) => !!a.properties) };
     }
     if (only('array')) {
-        const item = alts.map((a) => a.items).find((i) => i);
-        const itemAlts = item ? (Array.isArray(item) ? item : [item]).flatMap((i) => expand(i)) : [];
+        const itemAlts = alts.flatMap((a) => [...(a.prefixItems ?? []), ...(a.items ? [a.items] : [])]).flatMap((i) => expand(i));
         return { text: `${k}:\n\t- $0`, retrigger: itemAlts.some((a) => !!a.properties || !!a.enum) };
     }
     const enumValues = alts.flatMap((a) => a.enum ?? (a.hasConst ? [a.const] : [])).filter((v) => v === null || typeof v !== 'object');
@@ -638,9 +638,9 @@ export function hoverMarkdown(node: SchemaNode, key: string | undefined, env: Ho
     return out.join('\n\n');
 }
 
-/** Builds a starter scheme (JSON Schema draft-07 as YAML text) from a value. */
+/** Builds a starter scheme (JSON Schema 2020-12 as YAML text) from a value. */
 export function inferScheme(value: unknown): string {
-    const lines: string[] = ['$schema: "http://json-schema.org/draft-07/schema#"'];
+    const lines: string[] = ['$schema: "https://json-schema.org/draft/2020-12/schema"'];
     const emit = (v: unknown, ind: string) => {
         if (Array.isArray(v)) {
             lines.push(`${ind}type: array`);
