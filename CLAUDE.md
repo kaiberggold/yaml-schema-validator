@@ -12,6 +12,9 @@ section in `CHANGELOG.md`:
 
 Run `npm install` afterwards so `package-lock.json` carries the same version.
 
+Repository-only changes (tests, `example/`, `.vscode/`, `CLAUDE.md`, build or
+lock files, anything not shipped in the `.vsix`) do **not** bump the version.
+
 ## Checks before committing
 
 ```sh
