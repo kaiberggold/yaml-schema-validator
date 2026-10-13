@@ -21,9 +21,10 @@ next **development version** and a **git tag**, in the same commit:
    sessions cannot push tags themselves). This needs the repository secret
    `TAG_TOKEN`; without it the run only warns and the tag has to be set by hand.
 
-Releases are **only made by the user** (never on your own): `npm run bump -- release`
-turns `0.5.0-devel.2` into `0.5.0` (and the heading into `## 0.5.0`); after the
-commit the tag `v0.5.0` makes the workflow publish a GitHub release.
+Releases are **only made when the user asks** (never on your own): `npm run bump -- release`
+turns `0.5.0-devel.2` into `0.5.0` (and the heading into `## 0.5.0`); commit and
+push, the workflow then creates the tag `v0.5.0`, and that tag publishes the
+GitHub release with the `.vsix`.
 
 Repository-only changes (tests, `example/`, `.vscode/`, `.github/`, `scripts/`,
 `CLAUDE.md`, build or lock files, anything not shipped in the `.vsix`) get **no**

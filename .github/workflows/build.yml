@@ -1,10 +1,11 @@
 name: Build
 
 # Every push / pull request: type check, test and package the extension (.vsix as build artifact).
-# Pushing a development version (`0.5.0-devel.1` in package.json) to a branch creates the tag
-# `v0.5.0-devel.1` on the commit that introduced the version. Tags `v<version>` must match
-# package.json; development tags only build, a release tag (`v0.5.0`, set by hand) also
-# publishes a GitHub release with the .vsix.
+# Pushing a new version in package.json to a branch creates the tag `v<version>` on the commit
+# that introduced it: development versions (`0.5.0-devel.1`) after every change, release
+# versions (`0.5.0`) only after `npm run bump -- release`, which the user decides on.
+# Tags must match package.json; development tags only build, a release tag also publishes a
+# GitHub release with the .vsix (the tag can be pushed by hand as well).
 on:
   push:
     branches: ['**']
@@ -51,8 +52,8 @@ jobs:
             exit 1
           fi
 
-      - name: Tag development version
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(steps.package.outputs.version, '-devel.')
+      - name: Tag version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
         env:
           # The workflow token may not create tags on commits that change workflow files;
           # a repository secret TAG_TOKEN (fine-grained token with Contents and Workflows:
