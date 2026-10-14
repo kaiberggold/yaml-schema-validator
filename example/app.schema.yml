@@ -1,4 +1,4 @@
-# Scheme for app.yml: a JSON Schema (2020-12) written in YAML.
+# Schema for app.yml: a JSON Schema (2020-12) written in YAML.
 $schema: "https://json-schema.org/draft/2020-12/schema"
 description: Application configuration.
 type: object
@@ -6,7 +6,7 @@ required: [name, version, server]
 additionalProperties: false
 properties:
   extends:
-    description: Files merged into this one (handled by YAML Scheme Validator; declared so other JSON Schema tools accept the key).
+    description: Files merged into this one (handled by YAML Schema Validator; declared so other JSON Schema tools accept the key).
     type: [string, array]
     items:
       type: string
@@ -18,7 +18,7 @@ properties:
     patternErrorMessage: "The application name must be lowercase kebab-case (letters, digits and dashes)"
     # placeholders are filled in by this extension; other tools ignore x-errorMessages
     x-errorMessages:
-      pattern: "Application name '${value}' must be lowercase kebab-case (rule: ${scheme}:${ruleLine})"
+      pattern: "Application name '${value}' must be lowercase kebab-case (rule: ${schema}:${ruleLine})"
   version:
     type: string
     pattern: "^\\d+\\.\\d+\\.\\d+$"
@@ -40,7 +40,7 @@ properties:
     $ref: "#/$defs/server"
   database:
     type: object
-    description: Database settings, usually included from `database/db.yml` (validated by its own scheme).
+    description: Database settings, usually included from `database/db.yml` (validated by its own schema).
   features:
     type: array
     description: Optional features.

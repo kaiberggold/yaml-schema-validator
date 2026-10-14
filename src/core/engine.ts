@@ -252,7 +252,7 @@ class Run {
             schema = this.engine.metaScheme().root;
             const own = this.compileSchemeFile(file);
             for (const p of own?.scheme.problems ?? []) {
-                sink.add(p.file, p.start, p.end, 'error', 'scheme', p.message);
+                sink.add(p.file, p.start, p.end, 'error', 'schema', p.message);
             }
             own?.deps.forEach((d) => res.deps.add(d));
         } else {
@@ -260,10 +260,10 @@ class Run {
             let schemeFile = this.engine.findScheme(file);
             if (declared) {
                 if (fileKey(declared.path) === fileKey(file)) {
-                    sink.add(file, declared.start, declared.end, 'error', 'scheme', 'A file cannot be its own scheme');
+                    sink.add(file, declared.start, declared.end, 'error', 'schema', 'A file cannot be its own schema');
                     schemeFile = undefined;
                 } else if (!this.engine.exists(declared.path)) {
-                    sink.add(file, declared.start, declared.end, 'error', 'scheme', `Cannot find scheme file '${declared.raw}' (resolved to ${declared.path})`);
+                    sink.add(file, declared.start, declared.end, 'error', 'schema', `Cannot find schema file '${declared.raw}' (resolved to ${declared.path})`);
                     schemeFile = undefined;
                 } else if (!isSchemeFile(declared.path)) {
                     sink.add(
@@ -271,8 +271,8 @@ class Run {
                         declared.start,
                         declared.end,
                         'warning',
-                        'scheme',
-                        `Name scheme files '*.${schemeInfix()}.yml' so that they are checked against the scheme definition themselves`,
+                        'schema',
+                        `Name schema files '*.${schemeInfix()}.yml' so that they are checked against the schema definition themselves`,
                     );
                 }
             }
@@ -371,8 +371,8 @@ class Run {
             0,
             end,
             'warning',
-            'scheme',
-            `The scheme '${path.basename(schemeFile)}' has ${errors.length} error(s); validation results may be incomplete`,
+            'schema',
+            `The schema '${path.basename(schemeFile)}' has ${errors.length} error(s); validation results may be incomplete`,
             related,
         );
     }

@@ -1,6 +1,6 @@
 import * as path from 'path';
 
-/** Virtual path of the built-in meta scheme that validates scheme files. */
+/** Virtual path of the built-in meta-schema that validates schema files. */
 export const META_FILE = path.join(path.sep, '__yaml_scheme_builtin__', 'meta.schema.yml');
 
 /** Problem kinds that can be used as keys of `x-errorMessages` / `x-severity` maps. */
@@ -46,7 +46,7 @@ const schemaRef = '"#/$defs/schema"';
 export const META_TEXT = `
 $schema: "https://json-schema.org/draft/2020-12/schema"
 description: |
-  **Scheme file** (a JSON Schema document written in YAML, version 2020-12 unless
+  **Schema file** (a JSON Schema document written in YAML, version 2020-12 unless
   \`$schema\` names draft-07 or 2019-09). It validates
   the YAML file with the same base name in the same folder (\`app.schema.yml\`
   validates \`app.yml\`) and files that declare it in their first line
@@ -76,19 +76,19 @@ $defs:
     type: string
     description: |
       Message template. Placeholders: \`\${key}\`, \`\${path}\`, \`\${value}\`, \`\${actual}\`,
-      \`\${expected}\`, \`\${allowed}\`, \`\${hint}\`, \`\${file}\`, \`\${line}\`, \`\${scheme}\`,
+      \`\${expected}\`, \`\${allowed}\`, \`\${hint}\`, \`\${file}\`, \`\${line}\`, \`\${schema}\`,
       \`\${ruleLine}\` and the keyword values such as \`\${minimum}\` or \`\${pattern}\`.
   seeEntry:
     anyOf:
       - type: string
-        description: "A file path relative to the scheme, optionally with a line: \`docs/config.md:12\` or \`docs/config.md#L12\`."
+        description: "A file path relative to the schema, optionally with a line: \`docs/config.md:12\` or \`docs/config.md#L12\`."
       - type: object
         required: [file]
         additionalProperties: false
         properties:
           file:
             type: string
-            description: File path relative to the scheme file.
+            description: File path relative to the schema file.
           line:
             type: integer
             minimum: 1

@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=../app.schema.yml
-# The first line declares the scheme, so no sibling staging.schema.yml is needed.
+# The first line declares the schema, so no sibling staging.schema.yml is needed.
 extends: ../app.yml
 mode: production
 server:

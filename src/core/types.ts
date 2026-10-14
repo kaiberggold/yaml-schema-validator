@@ -21,7 +21,7 @@ export interface RelatedInfo {
 export type ProblemKind =
     | 'syntax'
     | 'include'
-    | 'scheme'
+    | 'schema'
     | 'type'
     | 'required'
     | 'additionalProperties'
