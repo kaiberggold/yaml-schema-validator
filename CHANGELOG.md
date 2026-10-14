@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 (in development)
+## 0.6.0
 
 - Extension icon, shown in the Marketplace and the Extensions view.
 
