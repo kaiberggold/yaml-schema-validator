@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 (in development)
+## 0.7.0
 
 - Consistent naming: the extension is now **YAML Schema Validator** (`kaiberggold.yaml-schema-validator`).
   This is a new extension ID: uninstall the old *YAML Scheme Validator* after installing this version.
