@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+- Extension icon, shown in the Marketplace and the Extensions view.
+
+## 0.5.1
+
+- The extension declares its MIT license (`package.json`); the license file is part of the package.
+
 ## 0.5.0
 
 - JSON Schema 2020-12 (the current version) is the default for scheme files: `$defs`, `prefixItems`,

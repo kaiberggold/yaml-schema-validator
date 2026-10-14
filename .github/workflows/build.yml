@@ -38,7 +38,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           FILE="yaml-scheme-validator-${VERSION}.vsix"
-          npx --yes @vscode/vsce@3 package --skip-license --out "$FILE"
+          npx --yes @vscode/vsce@3 package --out "$FILE"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
