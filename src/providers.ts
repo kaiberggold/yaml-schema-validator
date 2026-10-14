@@ -253,7 +253,7 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
                 it.sortText = `0_${e.name}`;
                 if (!schemes) {
                     const scheme = this.manager.engine.findScheme(full);
-                    it.detail = scheme && this.manager.engine.exists(scheme) ? `validated by ${path.basename(scheme)}` : 'no own scheme';
+                    it.detail = scheme && this.manager.engine.exists(scheme) ? `validated by ${path.basename(scheme)}` : 'no own schema';
                 }
                 items.push(it);
             }
@@ -280,8 +280,8 @@ export class HoverProvider implements vscode.HoverProvider {
         const decl = declaration(this.manager, doc);
         if (decl && pos.line === 0) {
             const text = decl.exists
-                ? `**Scheme** for this file: [${path.basename(decl.path)}](${vscode.Uri.file(decl.path).toString()})\n\n\`${decl.path}\``
-                : `**Scheme** \`${decl.raw}\`\n\n❌ File not found: \`${decl.path}\``;
+                ? `**Schema** for this file: [${path.basename(decl.path)}](${vscode.Uri.file(decl.path).toString()})\n\n\`${decl.path}\``
+                : `**Schema** \`${decl.raw}\`\n\n❌ File not found: \`${decl.path}\``;
             return new vscode.Hover(markdown(text), decl.range);
         }
         for (const site of includeSites(this.manager, doc)) {
@@ -308,8 +308,8 @@ export class HoverProvider implements vscode.HoverProvider {
         const lines = [`**${this.manager.extendKeyword}** → [${path.basename(target)}](${link})`, `\`${target}\``];
         lines.push(
             scheme
-                ? `Validated by its own scheme [${path.basename(scheme)}](${vscode.Uri.file(scheme).toString()}) only (not by the scheme of this file).`
-                : 'No own scheme: validated by the scheme of this file.',
+                ? `Validated by its own schema [${path.basename(scheme)}](${vscode.Uri.file(scheme).toString()}) only (not by the schema of this file).`
+                : 'No own schema: validated by the schema of this file.',
         );
         return lines.join('\n\n');
     }
@@ -384,7 +384,7 @@ export class LinkProvider implements vscode.DocumentLinkProvider {
         const decl = declaration(this.manager, doc);
         if (decl?.exists) {
             const link = new vscode.DocumentLink(decl.range, vscode.Uri.file(decl.path));
-            link.tooltip = `Open scheme ${path.basename(decl.path)}`;
+            link.tooltip = `Open schema ${path.basename(decl.path)}`;
             links.push(link);
         }
         for (const site of includeSites(this.manager, doc)) {

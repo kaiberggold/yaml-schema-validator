@@ -7,7 +7,7 @@ import { Manager } from './manager';
 import { AnchorReferenceProvider, CompletionProvider, DefinitionProvider, HoverProvider, LinkProvider, SELECTOR } from './providers';
 
 export function activate(context: vscode.ExtensionContext): void {
-    const log = vscode.window.createOutputChannel('YAML Scheme Validator');
+    const log = vscode.window.createOutputChannel('YAML Schema Validator');
     const manager = new Manager(log);
     const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 
@@ -20,9 +20,9 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.languages.registerDefinitionProvider(SELECTOR, new DefinitionProvider(manager)),
         vscode.languages.registerDocumentLinkProvider(SELECTOR, new LinkProvider(manager)),
         vscode.languages.registerReferenceProvider(SELECTOR, new AnchorReferenceProvider(manager)),
-        vscode.commands.registerCommand('yamlScheme.revalidateAll', () => manager.revalidateAll()),
-        vscode.commands.registerCommand('yamlScheme.openScheme', () => openScheme(manager)),
-        vscode.commands.registerCommand('yamlScheme.addModeline', () => addModeline(manager)),
+        vscode.commands.registerCommand('yamlSchema.revalidateAll', () => manager.revalidateAll()),
+        vscode.commands.registerCommand('yamlSchema.openSchema', () => openScheme(manager)),
+        vscode.commands.registerCommand('yamlSchema.addModeline', () => addModeline(manager)),
         vscode.window.onDidChangeActiveTextEditor(() => updateStatus(manager, status)),
         manager.onDidUpdate(() => updateStatus(manager, status)),
     );
@@ -43,8 +43,8 @@ function updateStatus(manager: Manager, status: vscode.StatusBarItem): void {
     const file = doc.uri.fsPath;
     const info = manager.schemaFor(file);
     if (isSchemeFile(file)) {
-        status.text = '$(symbol-ruler) scheme file';
-        status.tooltip = 'Validated against the built-in scheme definition. Click to open the validated YAML file.';
+        status.text = '$(symbol-ruler) schema file';
+        status.tooltip = 'Validated against the built-in schema definition. Click to open the validated YAML file.';
     } else if (info?.includedBy) {
         status.text = `$(symbol-ruler) via ${path.basename(info.includedBy)}`;
         status.tooltip = `Included by ${info.includedBy}; validated with ${info.scheme}`;
@@ -56,10 +56,10 @@ function updateStatus(manager: Manager, status: vscode.StatusBarItem): void {
         status.text = '$(symbol-ruler) included';
         status.tooltip = 'Included by a validated file';
     } else {
-        status.text = '$(symbol-ruler) no scheme';
+        status.text = '$(symbol-ruler) no schema';
         status.tooltip = `No ${path.basename(schemeCandidates(file)[0])} found. Click to create one.`;
     }
-    status.command = 'yamlScheme.openScheme';
+    status.command = 'yamlSchema.openSchema';
     status.show();
 }
 
@@ -88,7 +88,7 @@ async function openScheme(manager: Manager): Promise<void> {
     // a declared but missing scheme is created at the declared path
     const target = existing ?? schemeCandidates(file)[0];
     const choice = await vscode.window.showInformationMessage(
-        `${path.basename(file)} has no scheme. Create ${path.basename(target)} from its current content?`,
+        `${path.basename(file)} has no schema. Create ${path.basename(target)} from its current content?`,
         'Create',
     );
     if (choice !== 'Create') {
@@ -96,7 +96,7 @@ async function openScheme(manager: Manager): Promise<void> {
     }
     const root = new Resolver(engine.docs, manager.extendKeyword, () => undefined).buildFile(file);
     const body = inferScheme(root ? toJs(root) : {});
-    const text = `# Scheme for ${path.basename(file)}. Generated from its content (JSON Schema 2020-12) - adjust types, add descriptions and \`required: [keys]\` lists.\n${body}`;
+    const text = `# Schema for ${path.basename(file)}. Generated from its content (JSON Schema 2020-12) - adjust types, add descriptions and \`required: [keys]\` lists.\n${body}`;
     await vscode.workspace.fs.writeFile(vscode.Uri.file(target), Buffer.from(text, 'utf8'));
     await vscode.window.showTextDocument(vscode.Uri.file(target));
 }
@@ -110,13 +110,13 @@ async function addModeline(manager: Manager): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     const doc = editor?.document;
     if (!editor || !doc || doc.uri.scheme !== 'file' || !isYamlFile(doc.uri.fsPath) || isSchemeFile(doc.uri.fsPath)) {
-        void vscode.window.showInformationMessage('Open a YAML file that is validated by a scheme first.');
+        void vscode.window.showInformationMessage('Open a YAML file that is validated by a schema first.');
         return;
     }
     const file = doc.uri.fsPath;
     const scheme = manager.engine.findScheme(file);
     if (!scheme || !manager.engine.exists(scheme)) {
-        void vscode.window.showInformationMessage(`${path.basename(file)} has no scheme yet.`);
+        void vscode.window.showInformationMessage(`${path.basename(file)} has no schema yet.`);
         return;
     }
     let rel = path.relative(path.dirname(file), scheme).split(path.sep).join('/');

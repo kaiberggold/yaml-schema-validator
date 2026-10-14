@@ -24,15 +24,25 @@ const SEVERITY: Record<Problem['severity'], vscode.DiagnosticSeverity> = {
 };
 
 export function readOptions(): EngineOptions & { debounceMs: number; exclude: string } {
-    const c = vscode.workspace.getConfiguration('yamlScheme');
+    const c = vscode.workspace.getConfiguration('yamlSchema');
+    // settings were called `yamlScheme.*` before 0.7.0: still honour values set under the old names
+    const old = vscode.workspace.getConfiguration('yamlScheme');
+    const get = <T>(key: string, def: T, oldKey = key): T => {
+        const i = c.inspect<T>(key);
+        const set = i?.workspaceFolderValue ?? i?.workspaceValue ?? i?.globalValue;
+        if (set !== undefined) {
+            return set;
+        }
+        return old.get<T>(oldKey) ?? c.get<T>(key, def);
+    };
     return {
-        extendKeyword: c.get('extendKeyword', DEFAULT_OPTIONS.extendKeyword) || DEFAULT_OPTIONS.extendKeyword,
-        schemeInfix: c.get('schemeInfix', DEFAULT_SCHEME_INFIX) || DEFAULT_SCHEME_INFIX,
-        unknownKeySeverity: c.get('unknownKeySeverity', DEFAULT_OPTIONS.unknownKeySeverity),
-        includeSummary: c.get('includeSummary', DEFAULT_OPTIONS.includeSummary),
-        unusedAnchors: c.get('unusedAnchors', DEFAULT_OPTIONS.unusedAnchors),
-        debounceMs: c.get('debounceMs', 250),
-        exclude: c.get('exclude', '**/{node_modules,.git}/**'),
+        extendKeyword: get('extendKeyword', DEFAULT_OPTIONS.extendKeyword) || DEFAULT_OPTIONS.extendKeyword,
+        schemeInfix: get('schemaInfix', DEFAULT_SCHEME_INFIX, 'schemeInfix') || DEFAULT_SCHEME_INFIX,
+        unknownKeySeverity: get('unknownKeySeverity', DEFAULT_OPTIONS.unknownKeySeverity),
+        includeSummary: get('includeSummary', DEFAULT_OPTIONS.includeSummary),
+        unusedAnchors: get('unusedAnchors', DEFAULT_OPTIONS.unusedAnchors),
+        debounceMs: get('debounceMs', 250),
+        exclude: get('exclude', '**/{node_modules,.git}/**'),
     };
 }
 
@@ -81,7 +91,7 @@ export class Manager implements vscode.Disposable {
     private readonly byFile = new Map<string, Map<string, Problem[]>>();
     private readonly pending = new Set<string>();
     private timer: NodeJS.Timeout | undefined;
-    private readonly diagnostics = vscode.languages.createDiagnosticCollection('yaml-scheme');
+    private readonly diagnostics = vscode.languages.createDiagnosticCollection('yaml-schema');
     private readonly externalWatchers = new Map<string, vscode.Disposable>();
     private readonly updated = new vscode.EventEmitter<void>();
     readonly onDidUpdate = this.updated.event;
@@ -108,7 +118,7 @@ export class Manager implements vscode.Disposable {
                 }
             }),
             vscode.workspace.onDidChangeConfiguration((e) => {
-                if (e.affectsConfiguration('yamlScheme')) {
+                if (e.affectsConfiguration('yamlSchema') || e.affectsConfiguration('yamlScheme')) {
                     const before = schemeInfix();
                     this.options = readOptions();
                     this.engine.options = this.options;
@@ -454,7 +464,7 @@ export function toRange(r: Problem['range']): vscode.Range {
 
 function toDiagnostic(p: Problem): vscode.Diagnostic {
     const d = new vscode.Diagnostic(toRange(p.range), p.message, SEVERITY[p.severity]);
-    d.source = 'yaml-scheme';
+    d.source = 'yaml-schema';
     if (p.rule) {
         const { line, character } = p.rule.range.start;
         d.code = { value: p.kind, target: vscode.Uri.file(p.rule.file).with({ fragment: `L${line + 1},${character + 1}` }) };

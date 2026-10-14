@@ -311,7 +311,7 @@ test('scheme files are validated against the meta scheme', () => {
 
 test('a broken scheme is reported in the validated file', () => {
     const r = run({ 'a.schema.yml': 'properties:\n  x:\n    type: [\n', 'a.yml': 'x: 1\n' }, 'a.yml');
-    assert.ok(summary(r.problems).some((m) => /^a\.yml:1 warning The scheme 'a\.schema\.yml' has \d+ error\(s\)/.test(m)));
+    assert.ok(summary(r.problems).some((m) => /^a\.yml:1 warning The schema 'a\.schema\.yml' has \d+ error\(s\)/.test(m)));
 });
 
 test('anyOf picks the matching alternative or reports all forms', () => {
@@ -378,12 +378,12 @@ test('the declaration wins over the sibling scheme; other spellings work', () =>
 
 test('declared scheme problems: missing file, unconventional name', () => {
     assert.deepEqual(summary(run({ 'a.yml': '# scheme: nope.schema.yml\nx: 1\n' }, 'a.yml').problems), [
-        `a.yml:1 error Cannot find scheme file 'nope.schema.yml' (resolved to ${p('nope.schema.yml')})`,
+        `a.yml:1 error Cannot find schema file 'nope.schema.yml' (resolved to ${p('nope.schema.yml')})`,
     ]);
     const r = run({ 'rules.yml': 'properties:\n  x: {type: integer}\n', 'a.yml': '# schema: rules.yml\nx: y\n' }, 'a.yml');
     assert.deepEqual(summary(r.problems), [
         "a.yml:2 error 'x' must be integer, found string 'y'",
-        "a.yml:1 warning Name scheme files '*.schema.yml' so that they are checked against the scheme definition themselves",
+        "a.yml:1 warning Name schema files '*.schema.yml' so that they are checked against the schema definition themselves",
     ]);
 });
 

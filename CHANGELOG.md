@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 (in development)
+
+- Consistent naming: the extension is now **YAML Schema Validator** (`kaiberggold.yaml-schema-validator`).
+  This is a new extension ID: uninstall the old *YAML Scheme Validator* after installing this version.
+- Settings, commands and texts use "schema": settings `yamlSchema.*` (`yamlSchema.schemaInfix` instead of
+  `yamlScheme.schemeInfix`; values under the old `yamlScheme.*` names are still read), commands
+  *YAML Schema: …*, diagnostics source `yaml-schema`, problem kind `schema`, message placeholder `${schema}`
+  (`${scheme}` still works).
+
 ## 0.6.0
 
 - Extension icon, shown in the Marketplace and the Extensions view.

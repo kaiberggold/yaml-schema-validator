@@ -31,7 +31,7 @@ export interface ValidatorOptions {
 const DEFAULT_MESSAGES: Record<ProblemKind, string> = {
     syntax: '${message}',
     include: '${message}',
-    scheme: '${message}',
+    schema: '${message}',
     type: "'${key}' must be ${expected}, found ${actual}",
     required: "Missing required key '${key}'",
     additionalProperties: "Unknown key '${key}'.${hint}",
@@ -189,7 +189,8 @@ export class Validator {
         const allVars: Record<string, unknown> = {
             file: path.basename(at.file),
             line: range.start.line + 1,
-            scheme: path.basename(schema.scheme.file),
+            schema: path.basename(schema.scheme.file),
+            scheme: path.basename(schema.scheme.file), // older name of ${schema}
             ruleLine: rule ? rule.range.start.line + 1 : undefined,
             title: schema.title,
             description: schema.description,
