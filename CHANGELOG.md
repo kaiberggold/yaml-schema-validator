@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0 (in development)
+
+- Extension icon, shown in the Marketplace and the Extensions view.
+
 ## 0.5.1
 
 - The extension declares its MIT license (`package.json`); the license file is part of the package.
