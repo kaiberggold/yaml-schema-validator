@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { inferScheme } from './core/assist';
 import { Resolver, toJs } from './core/effective';
 import { configCandidates, isSchemeFile, isYamlFile, schemeCandidates } from './core/paths';
+import { ChildHighlighter } from './highlight';
 import { Manager } from './manager';
 import { AnchorReferenceProvider, CompletionProvider, DefinitionProvider, HoverProvider, LinkProvider, SELECTOR } from './providers';
 
@@ -15,6 +16,7 @@ export function activate(context: vscode.ExtensionContext): void {
         log,
         manager,
         status,
+        new ChildHighlighter(),
         vscode.languages.registerCompletionItemProvider(SELECTOR, new CompletionProvider(manager), ':', ' ', '/', '-'),
         vscode.languages.registerHoverProvider(SELECTOR, new HoverProvider(manager)),
         vscode.languages.registerDefinitionProvider(SELECTOR, new DefinitionProvider(manager)),

@@ -1,0 +1,6 @@
+{
+    // colours the keys below `server:` (host, port, tls) in app.yml
+    "yamlSchema.highlightChildren": {
+        "server": "#4fc1ff"
+    }
+}

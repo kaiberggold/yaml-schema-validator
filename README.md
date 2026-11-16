@@ -17,6 +17,7 @@ and other JSON Schema tools can use the same files as a backup.
 | Completion | Keys (with snippets for enums, booleans, defaults, objects and arrays), values, `extends` file paths |
 | Hover | Description, type, default, allowed values, constraints and a link to the definition in the schema |
 | Navigation | Ctrl+Click on `extends` paths, *Go to Definition* on keys (jumps into the schema) and on `$ref` in schemas |
+| Colours | Entries below configured keys get their own colour (`yamlSchema.highlightChildren`) |
 | Anchors | Unused anchors (`&name`) are greyed out; hover over `&name` or `*name` shows the anchored content and where it is used; *Go to Definition* / *Find All References* |
 
 Schema files themselves are checked against a built-in meta-schema, so
@@ -261,6 +262,33 @@ converting the YAML) can validate with them:
 - *Go to Definition* on an alias jumps to its anchor, *Find All References* on
   either lists the anchor and all its aliases.
 
+## Colouring entries below a key
+
+`yamlSchema.highlightChildren` gives the entries below certain keys a colour of
+their own, as many keys as you like:
+
+```json
+"yamlSchema.highlightChildren": {
+    "signals": "#e5a00d",
+    "params": "charts.orange"
+}
+```
+
+```yaml
+signals:
+  Sig1:          # coloured
+    - bla
+  Sig2:          # coloured
+params: [p1, p2] # p1 and p2 coloured
+```
+
+- Below a configured key, the keys of its mapping or the plain items of its list
+  are coloured: direct children only, wherever the key appears in the file.
+- Colours: `#rrggbb` (with a colour picker in `settings.json`), CSS colour names, or
+  theme colour ids such as `charts.orange`.
+- It works in every YAML file and alongside the Red Hat YAML extension: the colours
+  are editor decorations, drawn on top of the normal syntax colours.
+
 ## Commands and settings
 
 | Command | |
@@ -279,6 +307,7 @@ are still used.
 | `yamlSchema.unknownKeySeverity` | `warning` | Severity of keys forbidden by `additionalProperties: false` (`ignore` to disable) |
 | `yamlSchema.includeSummary` | `true` | Summary diagnostic on `extends` lines |
 | `yamlSchema.unusedAnchors` | `true` | Grey out anchors that no alias uses |
+| `yamlSchema.highlightChildren` | `{}` | Colours for the entries below keys: `{"signals": "#e5a00d"}` |
 | `yamlSchema.debounceMs` | `250` | Delay before revalidating |
 | `yamlSchema.exclude` | `**/{node_modules,.git}/**` | Ignored when searching for schemas |
 

@@ -2,7 +2,7 @@
   "name": "yaml-schema-validator",
   "displayName": "YAML Schema Validator",
   "description": "Validates YAML config files against JSON Schema files written in YAML (sibling *.schema.yml or declared in the first line), with recursive 'extends' includes, diagnostics, completion and hover help. Compatible with the Red Hat YAML extension.",
-  "version": "0.7.0",
+  "version": "0.8.0-devel.1",
   "publisher": "kaiberggold",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -85,6 +85,15 @@
           "type": "boolean",
           "default": true,
           "description": "Grey out anchors (`&name`) that no alias (`*name`) uses."
+        },
+        "yamlSchema.highlightChildren": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string",
+            "format": "color-hex"
+          },
+          "markdownDescription": "Colours for the entries below certain keys: for each key name, the keys of its mapping (or the items of its list) get the colour, e.g. `{\"signals\": \"#e5a00d\"}` colours `Sig1` and `Sig2` in\n```yaml\nsignals:\n  Sig1: …\n  Sig2: …\n```\nColours: `#rrggbb`, CSS colour names or theme colour ids such as `charts.orange`."
         },
         "yamlSchema.debounceMs": {
           "type": "number",

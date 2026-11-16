@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { YNode, parseYaml } from '../core/yaml';
 import { schemeDeclaration } from '../core/paths';
+import { childHighlights } from '../core/highlight';
 
 function js(n: YNode | undefined): unknown {
     if (!n) {
@@ -145,4 +146,13 @@ test('anchors with their token position, content and uses', () => {
     assert.deepEqual(byName.base.uses.map((u) => text.slice(u.start, u.end)), ['*base', '*base']);
     assert.equal(byName.l.uses.length, 1);
     assert.equal(byName.nope.uses.length, 0);
+});
+
+test('entries below configured keys are found for colouring', () => {
+    const text = 'signals:\n  Sig1:\n    - bla\n  Sig2:\nlist:\n  - a\n  - {x: 1}\n  - b\nnested:\n  deep:\n    signals: {Sig3: 1}\nother: {k: v}\n';
+    const found = childHighlights(parseYaml(text), new Set(['signals', 'list']));
+    const texts = (name: string) => (found.get(name) ?? []).map((r) => text.slice(r.start, r.end));
+    assert.deepEqual(texts('signals'), ['Sig1', 'Sig2', 'Sig3']);
+    assert.deepEqual(texts('list'), ['a', 'b']);
+    assert.equal(found.has('other'), false);
 });

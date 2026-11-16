@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0 (in development)
+
+- `yamlSchema.highlightChildren`: entries below configured keys (mapping keys or list items) get a colour of their own, e.g. `{"signals": "#e5a00d"}`.
+
 ## 0.7.0
 
 - Consistent naming: the extension is now **YAML Schema Validator** (`kaiberggold.yaml-schema-validator`).
