@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0 (in development)
+## 0.8.0
 
 - `yamlSchema.highlightChildren`: entries below configured keys (mapping keys or list items) get a colour of their own, e.g. `{"signals": "#e5a00d"}`.
 
